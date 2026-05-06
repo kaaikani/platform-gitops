@@ -1,0 +1,63 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: storefront
+spec:
+  template:
+    metadata:
+      labels:
+        node-type: on-demand
+        workload: storefront
+        cost-tier: budget
+        node-group: storefront
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["c5a"]
+
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["large"]
+
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["2"]
+
+        # Same AZ as the existing storefront node and RDS
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["ap-south-1a"]
+
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+
+      expireAfter: 720h
+
+  # Capacity for 3 storefronts × 2 replicas + headroom for rollouts
+  # Each c5a.large = 2 vCPU / 4 GiB. Limit allows up to 3 nodes.
+  limits:
+    cpu: 6
+    memory: 12Gi
+
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+
+  # Lower weight than 'application' (vendure) so vendure NodePool is preferred
+  # for vendure pods; storefront pods will land here via node-group selector
+  weight: 90
