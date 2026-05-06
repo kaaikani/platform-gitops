@@ -1,0 +1,457 @@
+# =============================================================================
+# VENDURE PRODUCTION ENVIRONMENT VALUES
+# =============================================================================
+# Environment: PRODUCTION (vendure-production namespace)
+# Purpose: Live customer-facing e-commerce platform
+#
+# Architecture (Recommended):
+#   - Vendure on ON-DEMAND instances (reliable, no interruptions)
+#   - External RDS MySQL (production database)
+#   - External Redis Cloud (production cache)
+#   - Monitoring on ON-DEMAND instance (always available)
+#
+# Usage:
+#   kubectl create namespace vendure-production
+#   kubectl apply -f vendure-secrets-production.yaml -n vendure-production
+#   helm install vendure ./helm/vendure-stack \
+#     -n vendure-production \
+#     -f helm/environments/production/vendure-values.yaml
+#
+# Estimated Cost: ~$30-60/month (on-demand instances)
+# =============================================================================
+
+global:
+  namespace: vendure-production
+  environment: production
+  # ECR registry
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+
+# =============================================================================
+# NAMESPACE CONFIGURATION
+# =============================================================================
+# Note: Use Helm's --create-namespace flag instead of creating manually
+# Example: helm install vendure ./helm/vendure-stack -n vendure-production --create-namespace
+namespace:
+  create: false  # Use --create-namespace flag with helm install/upgrade
+  name: vendure-production
+  podSecurity:
+    enforce: restricted  # Most secure for production
+    audit: restricted
+    warn: restricted
+
+# =============================================================================
+# VENDURE APPLICATION
+# =============================================================================
+vendure:
+  enabled: true
+
+  # Multiple replicas for High Availability
+  replicaCount: 2
+
+  image:
+    repository: vendure-production  # Separate production image
+    tag: "v1.0.0"  # Use specific version tags in production (e.g., "v1.2.3")
+    # IMPORTANT: Never use "latest" in production - always pin to specific version
+    pullPolicy: Always
+
+  # Production resources (higher than test)
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1000m"
+    limits:
+      memory: "3500Mi"
+      cpu: "1900m"
+
+  service:
+    type: ClusterIP
+    ports:
+      server:
+        port: 80
+      admin:
+        port: 3002
+
+  env:
+    NODE_ENV: production
+    APP_ENV: production
+    SUPERADMIN_USERNAME: superadmin
+    # OpenTelemetry Tracing Configuration
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+    OTEL_SERVICE_NAME: "vendure"
+    OTEL_RESOURCE_ATTRIBUTES: "service.name=vendure,service.version=v1.0.0,deployment.environment=production"
+
+  # Pod annotations for Prometheus scraping
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/metrics"
+
+  # Strict health checks for production
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 120
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 5
+
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Enable autoscaling for production
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 75
+    # HPA behavior configuration for controlled scaling
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 60  # Remove 1 pod per minute
+      scaleUp:
+        stabilizationWindowSeconds: 60   # Wait 1 minute before scaling up
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 30  # Add 1 pod per 30 seconds
+          - type: Percent
+            value: 100
+            periodSeconds: 60  # Or double replicas per minute if needed
+    # Custom metrics (optional - for request-based scaling)
+    # Uncomment and configure if you have Prometheus Adapter or custom metrics
+    # customMetrics: []
+
+  # Pod Disruption Budget (allows 1 pod to be unavailable during disruptions)
+  # Using maxUnavailable instead of minAvailable for better upgrade flexibility
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1  # Allows 1 pod disruption, more flexible for cluster upgrades
+
+  # Run on ON-DEMAND instances (reliable, no interruptions)
+  # Changed from spot to on-demand for better reliability and graceful handling of disruptions
+  nodeSelector:
+    node-type: on-demand
+    workload: application
+
+  # No tolerations needed for on-demand instances
+  tolerations: []
+
+  # Spread pods across availability zones
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - vendure
+            topologyKey: topology.kubernetes.io/zone
+
+  # Security context (run as non-root user)
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: false  # Set to true if app doesn't write to filesystem
+
+  # Graceful shutdown
+  terminationGracePeriodSeconds: 30
+  enableGracefulShutdown: true
+
+  # Startup probe for slow-starting applications
+  startupProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30  # Allow up to 5 minutes for startup
+
+  # Topology spread constraints for better distribution
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchExpressions:
+          - key: app
+            operator: In
+            values:
+              - vendure
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster MySQL - Using Amazon RDS
+mysql:
+  enabled: false
+
+# External Amazon RDS MySQL (Production Database)
+# IMPORTANT: Use a separate RDS instance for production!
+externalDatabase:
+  enabled: true
+  host: "production-db.cbq8i48yyklk.ap-south-1.rds.amazonaws.com"  # UPDATE THIS
+  port: 3306
+  database: vendure_production  # Separate database
+  username: admin
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "DB_PASSWORD"
+
+# =============================================================================
+# REDIS CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster Redis - Using Redis Cloud
+redis:
+  enabled: false
+
+# External Redis Cloud (Production)
+externalRedis:
+  enabled: true
+  host: "redis-production.crce179.ap-south-1-1.ec2.redns.redis-cloud.com"  # UPDATE THIS
+  port: 17207
+  username: "default"
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "REDIS_PASSWORD"
+
+# =============================================================================
+# AWS S3 CONFIGURATION (Asset Storage)
+# =============================================================================
+s3:
+  enabled: true
+  bucket: "cdn.kaaikani.co.in"
+  region: "ap-south-1"
+  assetPath: "assets/"  # Production assets path
+  # SECURITY: Use IRSA (IAM Roles for Service Accounts) instead of access keys
+  useIRSA: true  # Set to true to use IRSA, false to use access keys (NOT RECOMMENDED)
+  existingSecret: "vendure-secrets"
+  accessKeyIdKey: "AWS_ACCESS_KEY_ID"  # Only used if useIRSA: false
+  secretAccessKeyKey: "AWS_SECRET_ACCESS_KEY"  # Only used if useIRSA: false
+
+# =============================================================================
+# MONITORING CONFIGURATION
+# =============================================================================
+prometheus:
+  enabled: false
+  server:
+    enabled: false
+  pushgateway:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  kubeStateMetrics:
+    enabled: false
+
+grafana:
+  enabled: false
+
+# ServiceMonitor for external Prometheus
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  interval: 15s  # More frequent for production
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus-stack
+
+# PrometheusRule for production alerts (CRITICAL severity)
+prometheusRule:
+  enabled: true
+  namespace: monitoring
+  labels:
+    release: prometheus-stack
+  rules:
+    - alert: VendureProductionDown
+      expr: up{job=~".*vendure.*", namespace="vendure-production"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "CRITICAL: Vendure PRODUCTION is DOWN"
+        description: "Vendure production application is not responding for 1 minute"
+
+    - alert: VendureProductionHighErrorRate
+      expr: rate(http_requests_total{namespace="vendure-production",status=~"5.."}[5m]) > 0.05
+      for: 3m
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "CRITICAL: High error rate on Vendure PRODUCTION"
+        description: "Error rate is above 5% for 3 minutes"
+
+    - alert: VendureProductionHighLatency
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{namespace="vendure-production"}[5m])) > 2
+      for: 5m
+      labels:
+        severity: warning
+        environment: production
+      annotations:
+        summary: "High latency on Vendure PRODUCTION"
+        description: "95th percentile latency is above 2 seconds"
+
+    - alert: VendureProductionOOMRisk
+      expr: |
+        container_memory_usage_bytes{namespace="vendure-production",container="vendure"}
+        / container_spec_memory_limit_bytes{namespace="vendure-production",container="vendure"} > 0.9
+      for: 3m
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "CRITICAL: Vendure PRODUCTION OOM Risk"
+        description: "Memory usage above 90% - immediate attention needed"
+
+    - alert: VendureProductionAllPodsDown
+      expr: count(up{job=~".*vendure.*", namespace="vendure-production"} == 1) == 0
+      for: 30s
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "CRITICAL: ALL Vendure PRODUCTION pods are DOWN"
+        description: "No Vendure production pods are running - IMMEDIATE ACTION REQUIRED"
+
+# =============================================================================
+# INGRESS CONFIGURATION (AWS ALB)
+# =============================================================================
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d"
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    # Production specific
+    alb.ingress.kubernetes.io/tags: Environment=production,Project=vendure
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 80
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+networkPolicies:
+  enabled: true  # Enable for production security
+
+# =============================================================================
+# SECRETS MANAGEMENT - AWS Secrets Manager
+# =============================================================================
+# Using AWS Secrets Manager with External Secrets Operator
+# See: docs/AWS-SECRETS-MANAGER-SETUP.md for setup instructions
+secrets:
+  create: false  # External Secrets Operator will create the secret
+  existingSecret: "vendure-secrets"  # Created by External Secrets Operator
+
+# External Secrets Operator Configuration
+externalSecrets:
+  enabled: true  # Enable AWS Secrets Manager integration
+  createSecretStore: true
+  serviceAccountName: external-secrets  # Service account with IRSA in external-secrets-system namespace
+  aws:
+    region: ap-south-1
+  secretName: vendure/production  # Name of secret in AWS Secrets Manager
+  refreshInterval: 1h  # Sync every hour
+  includeRootPassword: false
+  includeTotpSalt: true
+  includeSmtp: true
+  includeShipping: true
+  includeOAuth: true
+  includeApiKeys: true
+
+serviceAccount:
+  create: true
+  annotations:
+    # For AWS IAM Roles for Service Accounts (IRSA)
+    # IMPORTANT: Create IAM role first using eksctl or AWS CLI, then uncomment and update ARN below
+    # eksctl create iamserviceaccount --name vendure-sa --namespace vendure-production \
+    #   --cluster vendure-cluster --attach-policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess \
+    #   --approve --override-existing-serviceaccounts
+    eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/vendure-production-role
+    # TODO: Replace above ARN with actual IAM role ARN after creating service account
+
+# =============================================================================
+# RBAC (Role-Based Access Control)
+# =============================================================================
+rbac:
+  enabled: true  # Enable RBAC for production
+  
+  # Developers - Read-only access (can view, cannot modify)
+  developers:
+    # Add developer IAM usernames here
+    # Example:
+    # - developer1
+    # - developer2
+  
+  # DevOps - Full access to application resources (can modify)
+  devops:
+    # Add devops IAM usernames here
+    # Example:
+    # - devops1
+    # - devops2
+  
+  # Read-only users - View-only access (managers, auditors)
+  readOnly:
+    # Add read-only IAM usernames here
+    # Example:
+    # - manager1
+    # - auditor1
+
+# =============================================================================
+# NETWORK POLICIES (Enable for production security)
+# =============================================================================
+networkPolicies:
+  enabled: true  # Enable default-deny network policies for production
+
+# =============================================================================
+# PRODUCTION CHECKLIST
+# =============================================================================
+#
+# Before deploying to production:
+#
+# [x] Use separate RDS instance (not shared with test)
+# [x] Use separate Redis instance (not shared with test)
+# [x] Set up proper backup policies for RDS
+# [x] Configure CloudWatch alarms for RDS/Redis
+# [ ] Set up Slack/PagerDuty alerts in AlertManager
+# [ ] Use specific image tags (not 'latest')
+# [x] Enable network policies
+# [x] Configure proper IAM roles (IRSA)
+# [x] Set up log aggregation (CloudWatch/Loki)
+# [ ] Configure rate limiting at ALB/Cloudflare
+# [ ] Set up Web Application Firewall (WAF)
+# [ ] Test disaster recovery procedures
+# [x] Configure automated secrets rotation
+# [x] Enable image scanning (Trivy Operator)
+# [x] Verify Pod Security Standards
+# [ ] Configure RBAC users
+#
+# =============================================================================

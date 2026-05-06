@@ -1,0 +1,275 @@
+# =============================================================================
+# ALERTMANAGER CONFIGURATION - PRODUCTION
+# =============================================================================
+# Multi-channel alert routing with Slack, Email, and PagerDuty
+#
+# SETUP REQUIRED:
+#   1. Create Slack App → Incoming Webhooks → Copy URL
+#   2. Store webhook URLs in AWS Secrets Manager:
+#      aws secretsmanager create-secret --name vendure/production/alertmanager \
+#        --secret-string '{"slack_webhook_critical":"https://hooks.slack.com/...","slack_webhook_warning":"https://hooks.slack.com/..."}'
+#   3. Create K8s secret:
+#      kubectl create secret generic alertmanager-slack -n monitoring \
+#        --from-literal=slack-webhook-critical='https://hooks.slack.com/services/XXX/YYY/ZZZ' \
+#        --from-literal=slack-webhook-warning='https://hooks.slack.com/services/XXX/YYY/ZZZ'
+#
+# Apply:
+#   kubectl delete secret alertmanager-config -n monitoring 2>/dev/null
+#   kubectl apply -f alertmanager-config.yaml
+#   kubectl rollout restart statefulset -n monitoring -l app.kubernetes.io/name=alertmanager
+# =============================================================================
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+type: Opaque
+stringData:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      # SMTP global config (for email fallback)
+      # UPDATE: Replace with your SMTP provider credentials
+      smtp_smarthost: 'smtp.gmail.com:587'
+      smtp_from: 'vendure-alerts@kaaikani.co.in'
+      smtp_auth_username: 'vendure-alerts@kaaikani.co.in'
+      smtp_auth_password: '<GMAIL_APP_PASSWORD>'
+      smtp_require_tls: true
+
+    # ============================================
+    # TEMPLATES - Rich alert formatting
+    # ============================================
+    templates:
+      - '/etc/alertmanager/templates/*.tmpl'
+
+    # ============================================
+    # ROUTING TREE
+    # ============================================
+    route:
+      group_by: ['alertname', 'namespace', 'severity']
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'slack-default'
+
+      routes:
+        # CRITICAL production alerts → Slack critical + Email + PagerDuty
+        - match:
+            severity: critical
+            environment: production
+          receiver: 'critical-production'
+          group_wait: 5s
+          repeat_interval: 5m
+          continue: true  # Also send to next matching route
+
+        # CRITICAL (any environment) → Slack critical
+        - match:
+            severity: critical
+          receiver: 'slack-critical'
+          group_wait: 10s
+          repeat_interval: 15m
+
+        # WARNING alerts → Slack warning channel
+        - match:
+            severity: warning
+          receiver: 'slack-warning'
+          group_wait: 30s
+          repeat_interval: 4h
+
+        # Watchdog (deadman switch) → separate channel
+        - match:
+            alertname: Watchdog
+          receiver: 'slack-default'
+          repeat_interval: 24h
+
+    # ============================================
+    # RECEIVERS
+    # ============================================
+    receivers:
+
+      # Default - catch-all (simple, scannable format)
+      - name: 'slack-default'
+        slack_configs:
+          - api_url: '<SLACK_WEBHOOK_URL>'
+            channel: '#vendure-alerts'
+            send_resolved: true
+            icon_emoji: ':bell:'
+            title: '{{ if eq .Status "firing" }}:large_blue_circle: [INFO]{{ else }}:large_green_circle: [RESOLVED]{{ end }} {{ .CommonLabels.alertname }}'
+            text: |-
+              {{ range .Alerts -}}
+              *What:* {{ .Annotations.summary }}
+              *Where:* `{{ .Labels.namespace }}` / `{{ if .Labels.pod }}{{ .Labels.pod }}{{ else if .Labels.deployment }}{{ .Labels.deployment }}{{ else }}{{ .Labels.instance }}{{ end }}`
+              *When:* {{ .StartsAt.Format "15:04 MST" }}
+              {{ end }}
+
+      # Critical Production - Slack + Email (scannable format with cause/fix)
+      - name: 'critical-production'
+        slack_configs:
+          - api_url: '<SLACK_WEBHOOK_URL>'
+            channel: '#vendure-critical'
+            send_resolved: true
+            color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+            icon_emoji: ':red_circle:'
+            title: '{{ if eq .Status "firing" }}:red_circle: [CRITICAL]{{ else }}:large_green_circle: [RESOLVED]{{ end }} {{ .CommonLabels.alertname }}'
+            text: |-
+              {{ range .Alerts -}}
+              *What changed:*  {{ .Annotations.summary }}
+              *Resource:*  `{{ if .Labels.pod }}{{ .Labels.pod }}{{ else if .Labels.deployment }}{{ .Labels.deployment }}{{ else if .Labels.statefulset }}{{ .Labels.statefulset }}{{ else }}{{ .Labels.alertname }}{{ end }}`
+              *Namespace:*  `{{ .Labels.namespace }}`
+              *Severity:*  {{ .Labels.severity | toUpper }}
+              *{{ if eq $.Status "firing" }}Started{{ else }}Resolved{{ end }}:*  {{ if eq $.Status "firing" }}{{ .StartsAt.Format "15:04 MST" }}{{ else }}{{ .EndsAt.Format "15:04 MST" }}{{ end }}
+              {{ if .Annotations.description -}}
+              *Details:*  {{ .Annotations.description }}
+              {{ end -}}
+              {{ if .Annotations.cause -}}
+              :bulb: *Likely cause:*  {{ .Annotations.cause }}
+              {{ end -}}
+              {{ if .Annotations.fix -}}
+              :wrench: *Quick fix:*  {{ .Annotations.fix }}
+              {{ end -}}
+              {{ end }}
+            actions:
+              - type: button
+                text: 'Grafana'
+                url: 'https://grafa.kaaikani.co.in'
+              - type: button
+                text: 'Prometheus'
+                url: 'https://prom.kaaikani.co.in'
+              - type: button
+                text: 'ArgoCD'
+                url: 'https://argo.kaaikani.co.in'
+        email_configs:
+          # UPDATE: Replace with your team email
+          - to: 'devops@kaaikani.co.in'
+            send_resolved: true
+            headers:
+              Subject: 'CRITICAL: Vendure Production - {{ .CommonLabels.alertname }}'
+            html: |
+              <h2 style="color:red">CRITICAL Production Alert</h2>
+              <table>
+              {{ range .Alerts }}
+              <tr><td><b>Alert:</b></td><td>{{ .Labels.alertname }}</td></tr>
+              <tr><td><b>Summary:</b></td><td>{{ .Annotations.summary }}</td></tr>
+              <tr><td><b>Description:</b></td><td>{{ .Annotations.description }}</td></tr>
+              <tr><td><b>Since:</b></td><td>{{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}</td></tr>
+              {{ end }}
+              </table>
+        # PagerDuty integration (optional - uncomment when ready)
+        # pagerduty_configs:
+        #   - service_key: '<PAGERDUTY_SERVICE_KEY>'
+        #     severity: 'critical'
+        #     description: '{{ .CommonAnnotations.summary }}'
+        #     details:
+        #       alertname: '{{ .CommonLabels.alertname }}'
+        #       namespace: '{{ .CommonLabels.namespace }}'
+
+      # Critical (non-production) - Slack only
+      - name: 'slack-critical'
+        slack_configs:
+          - api_url: '<SLACK_WEBHOOK_URL>'
+            channel: '#vendure-critical'
+            send_resolved: true
+            color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+            icon_emoji: ':red_circle:'
+            title: '{{ if eq .Status "firing" }}:red_circle: [CRITICAL]{{ else }}:large_green_circle: [RESOLVED]{{ end }} {{ .CommonLabels.alertname }}'
+            text: |-
+              {{ range .Alerts -}}
+              *What changed:*  {{ .Annotations.summary }}
+              *Resource:*  `{{ if .Labels.pod }}{{ .Labels.pod }}{{ else if .Labels.deployment }}{{ .Labels.deployment }}{{ else }}{{ .Labels.alertname }}{{ end }}`
+              *Namespace:*  `{{ .Labels.namespace }}`
+              *{{ if eq $.Status "firing" }}Started{{ else }}Resolved{{ end }}:*  {{ if eq $.Status "firing" }}{{ .StartsAt.Format "15:04 MST" }}{{ else }}{{ .EndsAt.Format "15:04 MST" }}{{ end }}
+              {{ if .Annotations.cause -}}
+              :bulb: *Likely cause:*  {{ .Annotations.cause }}
+              {{ end -}}
+              {{ if .Annotations.fix -}}
+              :wrench: *Quick fix:*  {{ .Annotations.fix }}
+              {{ end -}}
+              {{ end }}
+
+      # Warning alerts - Slack (yellow, short format)
+      - name: 'slack-warning'
+        slack_configs:
+          - api_url: '<SLACK_WEBHOOK_URL>'
+            channel: '#vendure-warnings'
+            send_resolved: true
+            color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+            icon_emoji: ':large_yellow_circle:'
+            title: '{{ if eq .Status "firing" }}:large_yellow_circle: [WARNING]{{ else }}:large_green_circle: [RESOLVED]{{ end }} {{ .CommonLabels.alertname }}'
+            text: |-
+              {{ range .Alerts -}}
+              *What:*  {{ .Annotations.summary }}
+              *Where:*  `{{ .Labels.namespace }}` / `{{ if .Labels.pod }}{{ .Labels.pod }}{{ else if .Labels.deployment }}{{ .Labels.deployment }}{{ else }}{{ .Labels.instance }}{{ end }}`
+              *When:*  {{ .StartsAt.Format "15:04 MST" }}
+              {{ end }}
+
+    # ============================================
+    # INHIBITION RULES
+    # ============================================
+    inhibit_rules:
+      # Don't alert about pods if the node is down
+      - source_match:
+          severity: 'critical'
+          alertname: 'NodeNotReady'
+        target_match:
+          severity: 'warning'
+        equal: ['node']
+
+      # Don't alert about high CPU if pod is restarting
+      - source_match:
+          alertname: 'PodFrequentRestarts'
+        target_match:
+          alertname: 'PodHighCPU'
+        equal: ['namespace', 'pod']
+
+      # Don't send warning if critical is already firing for same alert
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'namespace']
+
+      # Don't alert about individual pods if all pods are down
+      - source_match:
+          alertname: 'VendureProductionAllPodsDown'
+        target_match:
+          alertname: 'VendureProductionPodDown'
+        equal: ['namespace']
+
+      # Don't alert OOM warning if OOM critical is firing
+      - source_match:
+          alertname: 'VendureProductionOOMRisk'
+        target_match:
+          alertname: 'VendureProductionHighMemory'
+        equal: ['namespace']
+
+---
+# =============================================================================
+# QUICK SETUP GUIDE
+# =============================================================================
+#
+# Step 1: Create Slack App
+#   - Go to https://api.slack.com/apps
+#   - Create New App → From scratch
+#   - Name: "Vendure Alerts", Workspace: your workspace
+#   - Features → Incoming Webhooks → Activate
+#   - Add New Webhook to Workspace
+#   - Choose channel: #vendure-critical (create it first)
+#   - Copy webhook URL
+#   - Repeat for #vendure-warnings and #vendure-alerts channels
+#
+# Step 2: Replace placeholders
+#   - Replace ALL occurrences of '<SLACK_WEBHOOK_URL>' with your webhook URL
+#   - Replace '<GMAIL_APP_PASSWORD>' with Gmail App Password
+#   - Replace email addresses with your team's emails
+#
+# Step 3: Apply
+#   kubectl delete secret alertmanager-config -n monitoring 2>/dev/null
+#   kubectl apply -f helm/monitoring-stack/alertmanager-config.yaml
+#   kubectl rollout restart statefulset -n monitoring -l app.kubernetes.io/name=alertmanager
+#
+# Step 4: Verify
+#   kubectl exec -n monitoring -it alertmanager-0 -- amtool check-config /etc/alertmanager/config_out/alertmanager.env.yaml
+#   kubectl port-forward -n monitoring svc/alertmanager 9093:9093
+#   # Open http://localhost:9093 to see AlertManager UI
+# =============================================================================

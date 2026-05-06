@@ -1,0 +1,70 @@
+# =============================================================================
+# ArgoCD Application - SwadKerala Production
+# =============================================================================
+# Manages the SwadKerala Remix Storefront production deployment using Helm charts
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: swadkerala-production
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    environment: production
+    app: swadkerala
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: storefront=149536454380.dkr.ecr.ap-south-1.amazonaws.com/swadkerala
+    argocd-image-updater.argoproj.io/storefront.update-strategy: semver
+    argocd-image-updater.argoproj.io/storefront.helm.image-tag: storefront.image.tag
+    argocd-image-updater.argoproj.io/storefront.allow-tags: regexp:^v[0-9]+\.[0-9]+\.[0-9]+$
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-image-updater-secret
+    argocd-image-updater.argoproj.io/git-branch: master
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: master
+    path: storefront
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-production.yaml
+        - ../environments/production/swadkerala-values.yaml
+      releaseName: swadkerala-production
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: swadkerala-production
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas

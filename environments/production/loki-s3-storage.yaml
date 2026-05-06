@@ -1,0 +1,293 @@
+# =============================================================================
+# LOKI WITH S3 STORAGE - ULTRA COST OPTIMIZED
+# =============================================================================
+# Professional DevOps: Use S3 instead of EBS for 71% cost savings
+#
+# Cost Comparison:
+#   EBS gp3: $0.08/GB/month
+#   S3 Standard: $0.023/GB/month (71% cheaper!)
+#   S3 Intelligent-Tiering: $0.0125/GB/month (84% cheaper!)
+#
+# Example:
+#   10 Gi on EBS: $0.80/month
+#   10 Gi on S3:  $0.23/month
+#   Savings: 71%
+#
+# Usage:
+#   1. Create S3 bucket: aws s3 mb s3://vendure-loki-logs --region ap-south-1
+#   2. Configure IRSA for S3 access
+#   3. Deploy: helm upgrade loki grafana/loki-stack \
+#        -n monitoring -f loki-s3-storage.yaml
+# =============================================================================
+
+loki:
+  enabled: true
+  replicas: 1
+
+  # No persistence needed (using S3)
+  persistence:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  config:
+    auth_enabled: false
+
+    ingester:
+      chunk_idle_period: 3m
+      chunk_block_size: 262144
+      chunk_retain_period: 1m
+      max_transfer_retries: 0
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h  # 7 days
+      max_entries_limit_per_query: 5000
+      ingestion_rate_mb: 5
+      ingestion_burst_size_mb: 10
+
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: s3  # Use S3 instead of filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      # OPTIMIZATION: Use S3 for storage (71% cheaper than EBS)
+      aws:
+        s3: s3://vendure-loki-logs  # Your S3 bucket
+        region: ap-south-1
+        # Use IRSA (IAM Roles for Service Accounts) - recommended
+        # Or provide access keys via secret (less secure)
+        # s3forcepathstyle: true  # If using MinIO or S3-compatible
+      
+      boltdb_shipper:
+        active_index_directory: /data/loki/boltdb-shipper-active
+        cache_location: /data/loki/boltdb-shipper-cache
+        cache_ttl: 12h
+        shared_store: s3  # Store in S3
+      
+      # S3 configuration
+      s3:
+        endpoint: s3.ap-south-1.amazonaws.com
+        region: ap-south-1
+        bucketnames: vendure-loki-logs
+        # Use IRSA (no access keys needed)
+        # Or use access keys (less secure):
+        # access_key_id: ${AWS_ACCESS_KEY_ID}
+        # secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+
+    compactor:
+      working_directory: /data/loki/boltdb-shipper-compactor
+      shared_store: s3  # Compact to S3
+      retention_enabled: true
+      retention_delete_delay: 1h
+      retention_delete_worker_count: 200
+      retention_period: 168h  # 7 days
+
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h  # 7 days
+
+  # OPTIMIZATION: Allow scheduling on spot nodes (cost savings)
+  # Remove nodeSelector to allow scheduling on any available node
+  nodeSelector: {}
+  # Or use spot nodes (cheaper):
+  # nodeSelector:
+  #   node-type: spot
+
+  tolerations:
+    # Allow scheduling on spot nodes
+    - key: "spot"
+      operator: "Equal"
+      value: "true"
+      effect: "PreferNoSchedule"
+
+  # Service account with IRSA for S3 access
+  serviceAccount:
+    create: false  # Use existing service account created by eksctl
+    name: loki
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/eksctl-vendure-prod-addon-iamserviceaccount-m-Role1-bxJU1PlaIbTI
+    # Or create manually:
+    # eksctl create iamserviceaccount \
+    #   --name loki \
+    #   --namespace monitoring \
+    #   --cluster vendure-cluster \
+    #   --attach-policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess \
+    #   --approve
+
+promtail:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  config:
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+        batchwait: 1s
+        batchsize: 1048576
+
+    positions:
+      filename: /run/promtail/positions.yaml
+
+    scrape_configs:
+      # =============================================================================
+      # VENDURE APPLICATION LOGS - Captures ALL logs including console.log
+      # =============================================================================
+      - job_name: kubernetes-pods-vendure
+        kubernetes_sd_configs:
+          - role: pod
+            # Only scrape pods in Vendure namespaces
+            namespaces:
+              names:
+                - vendure-production
+                - vendure-test
+
+        # IMPORTANT: Capture ALL log streams (stdout + stderr)
+        # This includes console.log, console.error, console.warn, etc.
+        pipeline_stages:
+          # Parse CRI (Container Runtime Interface) logs
+          # This captures stdout/stderr from containers (includes console.log)
+          # CRI stage extracts: timestamp, stream (stdout/stderr), and log line
+          - cri: {}
+          
+          # Try to parse JSON logs (Vendure Logger outputs)
+          # If not JSON, continue with plain text (console.log outputs)
+          # This ensures BOTH structured and unstructured logs are captured
+          - json:
+              expressions:
+                level: level
+                msg: msg
+                message: message
+                timestamp: timestamp
+                context: context
+                error: error
+              # CRITICAL: Don't fail if log is not JSON (console.log is plain text)
+              # This ensures console.log outputs are NOT dropped
+              drop_malformed: false
+          
+          # Extract log level label for filtering (optional)
+          # Only add if level exists in JSON, otherwise keep original log
+          - labels:
+              level:
+          
+          # OPTIONAL: Drop only very verbose structured debug logs
+          # IMPORTANT: This ONLY drops structured logs with level="debug"
+          # console.log outputs are NOT dropped because they don't have level="debug"
+          # They're plain text and will pass through
+          - match:
+              selector: '{level="debug"}'
+              action: drop
+              drop_counter_reason: "structured_debug_only"
+          - match:
+              selector: '{level="verbose"}'
+              action: drop
+              drop_counter_reason: "structured_verbose_only"
+          - match:
+              selector: '{level="trace"}'
+              action: drop
+              drop_counter_reason: "structured_trace_only"
+          
+          # Note: console.log, console.error, console.warn outputs are plain text
+          # They don't have level labels, so they pass through and are captured
+
+        relabel_configs:
+          # Keep only Vendure namespaces
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+            regex: "vendure-production|vendure-test"
+            action: keep
+          
+          # Pod name
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          
+          # Container name
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          
+          # App name (for filtering Vendure logs)
+          # Extract app label if present (don't drop if missing)
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            target_label: app
+          
+          # Also try alternative app label
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          
+          # Node name (for debugging)
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          
+          # Stream type (stdout/stderr) - important for console.log
+          - source_labels: [__meta_kubernetes_pod_container_id]
+            target_label: stream
+            replacement: "stdout"
+          
+          # Add environment label
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: environment
+            regex: "vendure-(.*)"
+            replacement: "${1}"
+          
+          # Keep all other metadata
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          
+          # Drop internal Kubernetes labels
+          - action: labeldrop
+            regex: __meta_kubernetes_pod_label_pod_template_hash
+
+grafana:
+  enabled: false
+
+prometheus:
+  enabled: false
+
+# =============================================================================
+# SETUP INSTRUCTIONS
+# =============================================================================
+#
+# 1. Create S3 bucket:
+#    aws s3 mb s3://vendure-loki-logs --region ap-south-1
+#
+# 2. Create IAM role for Loki (IRSA):
+#    eksctl create iamserviceaccount \
+#      --name loki \
+#      --namespace monitoring \
+#      --cluster vendure-cluster \
+#      --attach-policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess \
+#      --approve
+#
+# 3. Deploy Loki with S3:
+#    helm upgrade loki grafana/loki-stack \
+#      -n monitoring \
+#      -f helm/environments/production/loki-s3-storage.yaml
+#
+# 4. Verify S3 storage:
+#    aws s3 ls s3://vendure-loki-logs/
+#
+# =============================================================================
+

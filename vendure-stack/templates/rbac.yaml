@@ -1,0 +1,203 @@
+{{- if .Values.rbac.enabled }}
+# =============================================================================
+# RBAC (Role-Based Access Control) Configuration
+# =============================================================================
+# This file defines roles and role bindings for different user types:
+#   - developer-role: Read-only access (view pods, logs, deployments)
+#   - devops-role: Full access to application resources (can modify)
+#   - read-only-role: View-only access (cannot modify anything)
+# =============================================================================
+
+---
+# Developer Role - Read-only access to application resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+rules:
+  # Can view pods and logs
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/status"]
+    verbs: ["get", "list", "watch"]
+  
+  # Can view services
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  
+  # Can view configmaps and secrets (read-only)
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  
+  # Can view deployments and replicasets
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  
+  # Can view horizontal pod autoscalers
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  
+  # CANNOT create, update, patch, or delete anything
+  # This is intentional - developers should only view, not modify
+
+---
+# DevOps Role - Full access to application resources (can modify)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devops-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+rules:
+  # Full access to pods
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "pods/portforward", "pods/status"]
+    verbs: ["*"]
+  
+  # Full access to services
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["*"]
+  
+  # Full access to configmaps and secrets
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["*"]
+  
+  # Full access to deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["*"]
+  
+  # Full access to horizontal pod autoscalers
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["*"]
+  
+  # Full access to ingress
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["*"]
+  
+  # Full access to network policies
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["*"]
+  
+  # CANNOT delete namespaces or modify RBAC (safety)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+
+---
+# Read-Only Role - View-only access (cannot modify anything)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: read-only-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+rules:
+  # Can only view (get, list, watch) - no modifications
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/status", "services", "endpoints", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  
+  # Cannot view secrets (security)
+  # Cannot modify anything
+
+---
+# Developer RoleBinding - Assign developers to developer-role
+{{- if .Values.rbac.developers }}
+{{- range .Values.rbac.developers }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-binding-{{ . | replace "@" "-" | replace "." "-" | lower }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" $ | nindent 4 }}
+subjects:
+  - kind: User
+    name: {{ . }}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: developer-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}
+
+---
+# DevOps RoleBinding - Assign devops to devops-role
+{{- if .Values.rbac.devops }}
+{{- range .Values.rbac.devops }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devops-binding-{{ . | replace "@" "-" | replace "." "-" | lower }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" $ | nindent 4 }}
+subjects:
+  - kind: User
+    name: {{ . }}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: devops-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}
+
+---
+# Read-Only RoleBinding - Assign read-only users
+{{- if .Values.rbac.readOnly }}
+{{- range .Values.rbac.readOnly }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-only-binding-{{ . | replace "@" "-" | replace "." "-" | lower }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" $ | nindent 4 }}
+subjects:
+  - kind: User
+    name: {{ . }}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: read-only-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}
+
+{{- end }}
+

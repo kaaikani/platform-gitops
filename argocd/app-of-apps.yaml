@@ -1,0 +1,43 @@
+# =============================================================================
+# ArgoCD App of Apps - Root Application
+# =============================================================================
+# This is the root application that manages all other ArgoCD applications
+# Deploy this first, then it will automatically deploy all child applications
+#
+# Usage:
+#   kubectl apply -f helm/argocd/app-of-apps.yaml
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vendure-app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: master
+    path: argocd/applications
+    directory:
+      recurse: true
+      include: '*.yaml'
+      exclude: 'README.md'
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+

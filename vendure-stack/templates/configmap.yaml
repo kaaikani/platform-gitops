@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-config
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+data:
+  # Application configuration
+  NODE_ENV: {{ .Values.vendure.env.NODE_ENV | quote }}
+  APP_ENV: {{ .Values.vendure.env.APP_ENV | quote }}
+
+  # Database configuration
+  DB_HOST: {{ include "vendure-stack.mysql.host" . | quote }}
+  DB_PORT: {{ .Values.vendure.database.port | quote }}
+  DB_NAME: {{ .Values.vendure.database.name | quote }}
+
+  # Redis configuration
+  REDIS_HOST: {{ include "vendure-stack.redis.host" . | quote }}
+  REDIS_PORT: {{ .Values.vendure.redis.port | quote }}

@@ -1,0 +1,196 @@
+# =============================================================================
+# LOKI STORAGE ALERTS - PROMETHEUS RULES
+# =============================================================================
+# Alerts for monitoring Loki storage usage and costs
+# Apply with: kubectl apply -f loki-storage-alerts.yaml -n monitoring
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: loki-storage-alerts
+  namespace: monitoring
+  labels:
+    app: loki
+    component: monitoring
+spec:
+  groups:
+    - name: loki.storage
+      interval: 5m
+      rules:
+        # Alert when Loki storage exceeds 70% (warning)
+        - alert: LokiStorageUsageWarning
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+              /
+              kubelet_volume_stats_capacity_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+            ) > 0.7
+          for: 10m
+          labels:
+            severity: warning
+            component: loki
+            environment: production
+          annotations:
+            summary: "Loki storage usage above 70%"
+            description: |
+              Loki PVC {{ $labels.persistentvolumeclaim }} is 
+              {{ $value | humanizePercentage }} full.
+              Current usage: {{ $labels.used_bytes | humanize1024 }}
+              Capacity: {{ $labels.capacity_bytes | humanize1024 }}
+
+        # Alert when Loki storage exceeds 85% (critical)
+        - alert: LokiStorageUsageCritical
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+              /
+              kubelet_volume_stats_capacity_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: critical
+            component: loki
+            environment: production
+          annotations:
+            summary: "Loki storage usage CRITICAL - above 85%"
+            description: |
+              Loki PVC {{ $labels.persistentvolumeclaim }} is 
+              {{ $value | humanizePercentage }} full.
+              Immediate action required to prevent log loss.
+              Current usage: {{ $labels.used_bytes | humanize1024 }}
+              Capacity: {{ $labels.capacity_bytes | humanize1024 }}
+
+        # Alert when Loki storage growth rate is high
+        - alert: LokiStorageGrowthHigh
+          expr: |
+            (
+              rate(kubelet_volume_stats_used_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }[1h])
+              /
+              kubelet_volume_stats_capacity_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+            ) > 0.05
+          for: 30m
+          labels:
+            severity: warning
+            component: loki
+            environment: production
+          annotations:
+            summary: "Loki storage growing rapidly"
+            description: |
+              Loki storage is growing at {{ $value | humanizePercentage }} per hour.
+              This may indicate log volume increase or retention not working.
+              PVC: {{ $labels.persistentvolumeclaim }}
+
+        # Alert when retention is not working (storage not decreasing)
+        - alert: LokiRetentionNotWorking
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+              -
+              kubelet_volume_stats_used_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              } offset 24h
+            ) > 0
+            and
+            (
+              kubelet_volume_stats_used_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+              /
+              kubelet_volume_stats_capacity_bytes{
+                persistentvolumeclaim=~"loki.*",
+                namespace="monitoring"
+              }
+            ) > 0.5
+          for: 48h
+          labels:
+            severity: warning
+            component: loki
+            environment: production
+          annotations:
+            summary: "Loki retention may not be working"
+            description: |
+              Loki storage has been growing for 48+ hours without decrease.
+              Retention policy may not be working correctly.
+              PVC: {{ $labels.persistentvolumeclaim }}
+              Current usage: {{ $value | humanize1024 }}
+
+---
+# =============================================================================
+# PROMETHEUS STORAGE ALERTS (for completeness)
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: prometheus-storage-alerts
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: monitoring
+spec:
+  groups:
+    - name: prometheus.storage
+      interval: 5m
+      rules:
+        # Alert when Prometheus storage exceeds 70%
+        - alert: PrometheusStorageUsageWarning
+          expr: |
+            (
+              prometheus_tsdb_storage_blocks_bytes
+              /
+              (prometheus_tsdb_head_max_bytes * 1.2)
+            ) > 0.7
+          for: 10m
+          labels:
+            severity: warning
+            component: prometheus
+            environment: production
+          annotations:
+            summary: "Prometheus storage usage above 70%"
+            description: |
+              Prometheus storage is {{ $value | humanizePercentage }} full.
+              Consider reducing retention or increasing storage.
+
+        # Alert when Prometheus storage exceeds 85%
+        - alert: PrometheusStorageUsageCritical
+          expr: |
+            (
+              prometheus_tsdb_storage_blocks_bytes
+              /
+              (prometheus_tsdb_head_max_bytes * 1.2)
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: critical
+            component: prometheus
+            environment: production
+          annotations:
+            summary: "Prometheus storage usage CRITICAL - above 85%"
+            description: |
+              Prometheus storage is {{ $value | humanizePercentage }} full.
+              Immediate action required to prevent data loss.
+

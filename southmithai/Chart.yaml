@@ -1,0 +1,6 @@
+apiVersion: v2
+name: southmithai
+description: Helm chart for South Mithai storefront website
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

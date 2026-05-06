@@ -1,0 +1,19 @@
+{{- if and (not .Values.mysql.enabled) .Values.externalDatabase .Values.externalDatabase.enabled .Values.externalDatabase.host }}
+# ExternalName Service pointing to external RDS MySQL
+# This creates a DNS alias inside the cluster that points to the external database
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-mysql-external
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  type: ExternalName
+  externalName: {{ .Values.externalDatabase.host }}
+  ports:
+    - port: {{ .Values.externalDatabase.port | default 3306 }}
+      targetPort: {{ .Values.externalDatabase.port | default 3306 }}
+      protocol: TCP
+      name: mysql
+{{- end }}

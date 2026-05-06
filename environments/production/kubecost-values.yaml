@@ -1,0 +1,131 @@
+# =============================================================================
+# KUBECOST - PRODUCTION ENVIRONMENT
+# =============================================================================
+# Cost monitoring and optimization using existing Prometheus stack
+# Cost-optimized: no bundled Prometheus/Grafana, minimal resources
+#
+# Access: https://kube.kaaikani.co.in
+# Namespace: kubecost
+# Node: platform node group (dedicated=platform:NoSchedule)
+#
+# Estimated Resources: ~160m CPU, ~288Mi RAM (frontend + cost-model)
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Global: use existing Prometheus from monitoring namespace
+# ---------------------------------------------------------------------------
+global:
+  prometheus:
+    enabled: false
+    fqdn: "http://prometheus-stack-kube-prom-prometheus.monitoring.svc.cluster.local:9090"
+
+# ---------------------------------------------------------------------------
+# Disable all bundled sub-charts (already deployed in monitoring namespace)
+# ---------------------------------------------------------------------------
+prometheus:
+  server:
+    enabled: false
+  kube-state-metrics:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  serviceAccounts:
+    server:
+      create: false
+    kube-state-metrics:
+      create: false
+    nodeExporter:
+      create: false
+
+grafana:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Kubecost product configuration
+# ---------------------------------------------------------------------------
+kubecostProductConfigs:
+  clusterName: "vendure-prod-cluster"
+  productAnalytics: false
+  currencyCode: "INR"
+
+# ---------------------------------------------------------------------------
+# Cost model (backend) - minimal resources
+# ---------------------------------------------------------------------------
+kubecostModel:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 150m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Frontend - minimal resources
+# ---------------------------------------------------------------------------
+kubecostFrontend:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 9090
+
+# ---------------------------------------------------------------------------
+# Persistent volume for cost data
+# ---------------------------------------------------------------------------
+persistentVolume:
+  enabled: true
+  size: 5Gi
+  storageClass: gp3
+
+# ---------------------------------------------------------------------------
+# Schedule on platform nodes
+# ---------------------------------------------------------------------------
+nodeSelector:
+  node-group: platform
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: platform
+    effect: NoSchedule
+
+# ---------------------------------------------------------------------------
+# ALB Ingress - shared group with HTTPS
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: alb
+  hosts:
+    - kube.kaaikani.co.in
+  paths:
+    - /
+  pathType: Prefix
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: vendure-shared
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c"
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/success-codes: "200,301,302"
+
+# ---------------------------------------------------------------------------
+# ServiceMonitor for Prometheus scraping
+# ---------------------------------------------------------------------------
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  additionalLabels:
+    release: prometheus-stack

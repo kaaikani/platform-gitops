@@ -1,0 +1,18 @@
+apiVersion: v2
+name: storefront
+description: A Helm chart for deploying Vendure Remix Storefront on Kubernetes
+
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - vendure
+  - storefront
+  - remix
+  - ecommerce
+  - nodejs
+
+maintainers:
+  - name: DevOps Team
+    email: devops@kaaikani.co.in

@@ -1,0 +1,48 @@
+{{- if and .Values.vendure.enabled .Values.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-vendure
+  labels:
+    {{- include "vendure-stack.vendure.labels" . | nindent 4 }}
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      {{- include "vendure-stack.vendure.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: server
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
+{{- if and .Values.worker.enabled .Values.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+---
+# PodMonitor for Vendure Worker — worker has no Service so PodMonitor is used.
+# Tracks worker pod health via kube-state-metrics labels.
+# Worker crash/restart alerts are in monitoring-values.yaml (vendure-worker-alerts).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-worker
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      {{- include "vendure-stack.vendure.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  podMetricsEndpoints:
+    - port: server
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}

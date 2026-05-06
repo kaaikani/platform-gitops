@@ -1,0 +1,108 @@
+# =============================================================================
+# STOREFRONT - PRODUCTION VALUES
+# =============================================================================
+# Usage: helm install storefront ./storefront -f values-production.yaml -n storefront-production
+# =============================================================================
+
+global:
+  namespace: storefront-production
+  environment: production
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+
+storefront:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: kaaikanistore
+    tag: "v0.4.3"
+    pullPolicy: Always
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "150m"
+    limits:
+      memory: "768Mi"
+      cpu: "500m"
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8002
+
+  env:
+    NODE_ENV: production
+    PORT: "8002"
+    VENDURE_API_URL: "https://kaaikani.co.in/shop-api"
+    HYGRAPH_ENDPOINT: "https://ap-south-1.cdn.hygraph.com/content/cm5c7pe3p012407uvvb6u1yln/master"
+
+  podAnnotations:
+    reloader.stakater.com/auto: "true"
+
+  livenessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 75
+
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+  nodeSelector: {}
+  affinity: {}
+
+# =============================================================================
+# INGRESS CONFIGURATION (AWS ALB)
+# =============================================================================
+ingress:
+  enabled: false
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c"
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/tags: Environment=production,Project=storefront
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+  hosts:
+    - host: web.kaaikanistore.com
+      paths:
+        - path: /
+          pathType: Prefix
+          port: 80
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+networkPolicies:
+  enabled: true
+
+secrets:
+  create: false
+  existingSecret: "storefront-secrets"

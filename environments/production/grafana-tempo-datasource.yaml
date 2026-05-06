@@ -1,0 +1,86 @@
+# =============================================================================
+# GRAFANA TEMPO DATASOURCE CONFIGURATION
+# =============================================================================
+# This creates a Tempo datasource in Grafana for distributed tracing
+# Apply with: kubectl apply -f grafana-tempo-datasource.yaml -n monitoring
+#
+# Note: This uses Grafana's Provisioning API
+# Alternative: Configure manually via Grafana UI
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-tempo-datasource
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: datasource
+data:
+  tempo.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        uid: tempo
+        isDefault: false
+        jsonData:
+          # Enable trace-to-logs correlation
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ['job', 'instance', 'pod', 'namespace']
+            mappedTags: [{ key: 'service.name', value: 'service' }]
+            mapTagNamesEnabled: false
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '1h'
+            filterByTraceID: false
+            filterBySpanID: false
+          
+          # Enable trace-to-metrics correlation
+          tracesToMetrics:
+            datasourceUid: prometheus
+            tags: [{ key: 'service.name', value: 'service' }]
+            queries:
+              - name: 'Sample query'
+                query: 'sum(rate(tempo_spanmetrics_latency_bucket{$$__tags}[5m]))'
+          
+          # Service map configuration
+          serviceMap:
+            datasourceUid: prometheus
+          
+          # Node graph configuration
+          nodeGraph:
+            enabled: true
+          
+          # Search configuration
+          search:
+            hide: false
+          
+          # Loki configuration for log correlation
+          lokiSearch:
+            datasourceUid: loki
+
+---
+# =============================================================================
+# GRAFANA PROVISIONING CONFIGURATION
+# =============================================================================
+# This tells Grafana to load the datasource from the ConfigMap above
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: provisioning
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # Tempo datasource will be loaded from tempo.yaml ConfigMap
+      # This file is referenced in Grafana's provisioning configuration
+

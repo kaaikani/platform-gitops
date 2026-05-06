@@ -1,0 +1,17 @@
+{{- if and .Values.vendure.enabled .Values.vendure.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-vendure
+  labels:
+    {{- include "vendure-stack.vendure.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.vendure.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.vendure.podDisruptionBudget.maxUnavailable }}
+  {{- else if .Values.vendure.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.vendure.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "vendure-stack.vendure.selectorLabels" . | nindent 6 }}
+{{- end }}

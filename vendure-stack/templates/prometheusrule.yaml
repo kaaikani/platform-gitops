@@ -1,0 +1,101 @@
+{{- if and .Values.vendure.enabled .Values.prometheus.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-alerts
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: vendure.rules
+      rules:
+        # Pod is down
+        - alert: VendurePodDown
+          expr: up{job="{{ include "vendure-stack.fullname" . }}-vendure"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Vendure pod is down"
+            description: "Vendure pod has been down for more than 1 minute."
+
+        # High memory usage
+        - alert: VendureHighMemoryUsage
+          expr: |
+            container_memory_usage_bytes{pod=~"{{ include "vendure-stack.fullname" . }}-vendure.*"}
+            / container_spec_memory_limit_bytes{pod=~"{{ include "vendure-stack.fullname" . }}-vendure.*"} > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Vendure memory usage is high"
+            description: "Vendure pod memory usage is above 90% for more than 5 minutes."
+
+        # High CPU usage
+        - alert: VendureHighCPUUsage
+          expr: |
+            rate(container_cpu_usage_seconds_total{pod=~"{{ include "vendure-stack.fullname" . }}-vendure.*"}[5m]) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Vendure CPU usage is high"
+            description: "Vendure pod CPU usage is above 90% for more than 5 minutes."
+
+        # Pod restarts
+        - alert: VendurePodRestarts
+          expr: |
+            increase(kube_pod_container_status_restarts_total{pod=~"{{ include "vendure-stack.fullname" . }}-vendure.*"}[1h]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Vendure pod is restarting frequently"
+            description: "Vendure pod has restarted more than 3 times in the last hour."
+
+    - name: mysql.rules
+      rules:
+        # MySQL is down
+        - alert: MySQLDown
+          expr: mysql_up == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MySQL is down"
+            description: "MySQL database has been down for more than 1 minute."
+
+        # MySQL connections high
+        - alert: MySQLConnectionsHigh
+          expr: |
+            mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MySQL connections are high"
+            description: "MySQL is using more than 80% of max connections."
+
+    - name: redis.rules
+      rules:
+        # Redis is down
+        - alert: RedisDown
+          expr: redis_up == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Redis is down"
+            description: "Redis cache has been down for more than 1 minute."
+
+        # Redis memory high
+        - alert: RedisMemoryHigh
+          expr: |
+            redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Redis memory usage is high"
+            description: "Redis is using more than 90% of max memory."
+{{- end }}

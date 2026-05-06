@@ -1,0 +1,52 @@
+# =============================================================================
+# ArgoCD Application - Loki Stack (Log Aggregation)
+# =============================================================================
+# Manages Loki + Promtail for centralized logging
+# Uses multi-source: Helm chart from grafana + values from Git
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: monitoring
+    component: loki
+spec:
+  project: default
+
+  # Multi-source: Helm chart from external repo + values from Git
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: loki-stack
+      targetRevision: 2.10.2
+      helm:
+        releaseName: loki
+        valueFiles:
+          - $values/environments/production/loki-values-cost-optimized.yaml
+    - repoURL: https://github.com/kaaikani/platform-gitops.git
+      targetRevision: master
+      ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

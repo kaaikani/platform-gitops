@@ -1,0 +1,62 @@
+# =============================================================================
+# PROMETHEUS MYSQL EXPORTER - PRODUCTION
+# =============================================================================
+# Exports MySQL/RDS metrics to Prometheus.
+# Enables DBConnectionPoolExhaustion and related RDS alerts.
+#
+# Target RDS: test-5.cbq8i48yyklk.ap-south-1.rds.amazonaws.com:3306
+# Credentials: vendure-secrets (DB_USERNAME / DB_PASSWORD)
+#
+# Deploy via ArgoCD: helm/argocd/applications/mysql-exporter.yaml
+# Chart: prometheus-community/prometheus-mysql-exporter
+# =============================================================================
+
+mysql:
+  host: "test-5.cbq8i48yyklk.ap-south-1.rds.amazonaws.com"
+  port: 3306
+  db: "wow_vendure"
+  user: "admin"
+  # Password read from existing Kubernetes secret (vendure-secrets)
+  existingPasswordSecret: "vendure-secrets"
+  existingPasswordSecretKey: "DB_PASSWORD"
+
+# Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus-stack
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Expose metrics
+service:
+  port: 9104
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9104"
+
+# Run on app node (no taint — vendure-secrets is in vendure-production namespace,
+# so this exporter needs network access to RDS only, not the secret directly;
+# the secret is mounted via the chart's existingPasswordSecret)
+nodeSelector:
+  node-group: app
+
+tolerations: []
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
+
+# The exporter needs access to vendure-secrets which is in vendure-production namespace.
+# We deploy in monitoring namespace, so we create a copy via ExternalSecret below.
+# See: mysql-exporter-secret.yaml (applied separately)
+#
+# NOTE: If vendure-secrets is not accessible from monitoring namespace,
+# run this once to copy the secret:
+#   kubectl get secret vendure-secrets -n vendure-production -o json \
+#     | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp)' \
+#     | kubectl apply -n monitoring -f -

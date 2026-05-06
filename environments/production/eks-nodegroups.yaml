@@ -1,0 +1,216 @@
+# =============================================================================
+# EKS NODE GROUP CONFIGURATION — REFERENCE
+# =============================================================================
+# Cluster: vendure-test (shared cluster — production runs in vendure-production namespace)
+# Region: ap-south-1
+# Managed via: AWS CLI (not eksctl — cluster was created outside eksctl)
+#
+# Architecture:
+#   - platform-v5: ON-DEMAND t4g.large (ARM/Graviton) — ArgoCD, Karpenter, Prometheus, Grafana (tainted: dedicated=platform)
+#   - app-v4: ON-DEMAND t3a.medium (x86) — Vendure overflow, Argo Rollouts, CoreDNS
+#   - Karpenter (application-test NodePool): ON-DEMAND t3a.medium/large (x86) — Vendure pods
+#
+# NOTE: Platform node uses Graviton (ARM) because all infrastructure tools
+# (Prometheus, Grafana, ArgoCD, Kyverno, etc.) publish multi-arch images.
+# App/Karpenter nodes stay x86 because the Vendure custom image is x86 only.
+# To go full ARM: rebuild Vendure with `docker buildx --platform linux/amd64,linux/arm64`
+#
+# Cost Estimate:
+#   - EKS Control Plane: $72/month (fixed)
+#   - 1x t4g.large On-Demand (platform): ~$49/month (8GB RAM — Graviton)
+#   - 1x t3a.medium On-Demand (app): ~$27/month
+#   - 1x t3a.medium Karpenter (Vendure pods): ~$27/month
+#   - ALB: ~$20/month
+#   - EBS Storage (47Gi): ~$4.70/month
+#   - Total: ~$200/month
+# =============================================================================
+
+# =============================================================================
+# NODE GROUP 1: PLATFORM (platform-v5) — Graviton ARM
+# =============================================================================
+# Purpose: Infrastructure — ArgoCD, Karpenter, External Secrets, Kyverno,
+#          Prometheus, Grafana, kube-state-metrics, Reloader, Velero, Trivy
+# Instance: t4g.large (2 vCPU, 8GB RAM) — ARM/Graviton, 2x memory vs t3a.medium
+# Taint: dedicated=platform:NoSchedule
+# AMI: AL2023_ARM_64_STANDARD (Amazon Linux 2023 for ARM)
+#
+# Why Graviton: All infra tools are multi-arch. Graviton provides 20% better
+# price-performance. 8GB RAM prevents the memory pressure issues seen with
+# t3a.medium (was running at 90% memory).
+#
+# Create:
+#   aws eks create-nodegroup \
+#     --cluster-name vendure-test \
+#     --nodegroup-name platform-v5 \
+#     --node-role "arn:aws:iam::149536454380:role/EKSNodeRole" \
+#     --instance-types t4g.large \
+#     --scaling-config minSize=1,maxSize=2,desiredSize=1 \
+#     --disk-size 20 \
+#     --subnets "subnet-093434190cf5e4068" "subnet-0638daa85aba925fc" \
+#     --ami-type AL2023_ARM_64_STANDARD \
+#     --labels "node-group=platform,dedicated=platform,environment=test" \
+#     --taints "key=dedicated,value=platform,effect=NO_SCHEDULE" \
+#     --tags "Project=vendure,Environment=test,ManagedBy=aws-cli,Name=vendure-test-platform-node" \
+#     --region ap-south-1
+#
+# Labels:
+#   node-group: platform
+#   dedicated: platform
+#   environment: test
+#
+# Taint:
+#   dedicated=platform:NoSchedule
+#
+# Migration from platform-v4 (x86):
+#   1. Create platform-v5 (above command)
+#   2. Wait for new node: kubectl get nodes -l node-group=platform
+#   3. Cordon old node: kubectl cordon <old-platform-node>
+#   4. Drain old node: kubectl drain <old-platform-node> --ignore-daemonsets --delete-emptydir-data
+#   5. Delete old nodegroup: aws eks delete-nodegroup --cluster-name vendure-test --nodegroup-name platform-v4 --region ap-south-1
+# =============================================================================
+
+# =============================================================================
+# NODE GROUP 2: APPLICATION (app-v4) — x86 — FALLBACK FOR KARPENTER
+# =============================================================================
+# Purpose: Spillover workloads — Vendure replicas, Argo Rollouts, CoreDNS,
+#          EBS CSI controllers, ALB controller, metrics-server.
+#          Also FALLBACK when Karpenter is down (controller crash, API throttle).
+# Instance: t3a.medium (2 vCPU, 4GB RAM) — x86 (required for Vendure image)
+# No taints — accepts any pod without tolerations
+# Keep minSize >= 1 so capacity exists without Karpenter. See KARPENTER-FAILOVER-STRATEGY.md
+#
+# Create:
+#   aws eks create-nodegroup \
+#     --cluster-name vendure-test \
+#     --nodegroup-name app-v4 \
+#     --node-role "arn:aws:iam::149536454380:role/EKSNodeRole" \
+#     --instance-types t3a.medium \
+#     --scaling-config minSize=1,maxSize=2,desiredSize=1 \
+#     --disk-size 20 \
+#     --subnets "subnet-0638daa85aba925fc" "subnet-0151de046e8f6d60b" \
+#     --ami-type AL2023_x86_64_STANDARD \
+#     --labels "node-group=app,node-type=on-demand,environment=test,workload=vendure" \
+#     --tags "Project=vendure,Environment=test,ManagedBy=aws-cli,Name=vendure-test-app-node" \
+#     --region ap-south-1
+#
+# Labels:
+#   node-group: app
+#   node-type: on-demand
+#   environment: test
+#   workload: vendure
+# =============================================================================
+
+# =============================================================================
+# NODE GROUP 3: KARPENTER AUTO-PROVISIONED (application-test NodePool)
+# =============================================================================
+# Purpose: Vendure production pods (topology spread across zones)
+# Managed by: Karpenter (not AWS managed node group)
+# Config: helm/karpenter/nodepool-application-test.yaml
+#         helm/karpenter/ec2nodeclass-test.yaml
+#
+# Instance types: t3a.medium or t3a.large (x86 — required for Vendure image)
+# Capacity: on-demand only
+# AZs: ap-south-1a, ap-south-1b, ap-south-1c
+#
+# Future: When Vendure image is built multi-arch, switch to t4g (ARM) for
+# 20% cost savings. Update nodepool-application-test.yaml arch to arm64.
+# =============================================================================
+
+# =============================================================================
+# KARPENTER FAILOVER — FALLBACK NODE GROUP CAPACITY
+# =============================================================================
+# If Karpenter controller crashes or AWS API throttles, no new nodes are
+# provisioned. NODE GROUP 2 (app-v4) is the fallback so app workloads can
+# still schedule.
+#
+# Requirements:
+#   - Keep app-v4 minSize >= 1 (2 for HA). Do not set minSize=0 if this is
+#     your only fallback for Karpenter.
+#   - Same labels as Karpenter app nodes: node-group=app (required by
+#     Vendure/Storefront nodeSelector).
+#   - Size so baseline capacity (e.g. Vendure minReplicas + worker) fits on
+#     fallback nodes when Karpenter is unavailable.
+#
+# See: helm/environments/production/KARPENTER-FAILOVER-STRATEGY.md
+# =============================================================================
+
+# =============================================================================
+# MANAGEMENT COMMANDS (AWS CLI)
+# =============================================================================
+#
+# List node groups:
+#   aws eks list-nodegroups --cluster-name vendure-test --region ap-south-1
+#
+# Describe node group:
+#   aws eks describe-nodegroup --cluster-name vendure-test \
+#     --nodegroup-name platform-v5 --region ap-south-1
+#
+# Scale node group:
+#   aws eks update-nodegroup-config --cluster-name vendure-test \
+#     --nodegroup-name app-v4 \
+#     --scaling-config minSize=1,maxSize=3,desiredSize=2 \
+#     --region ap-south-1
+#
+# Delete node group:
+#   aws eks delete-nodegroup --cluster-name vendure-test \
+#     --nodegroup-name app-v4 --region ap-south-1
+#
+# Drain node (before deletion):
+#   kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+#
+# =============================================================================
+
+# =============================================================================
+# RESOURCE ALLOCATION
+# =============================================================================
+#
+# PLATFORM NODE (t4g.large: 2 vCPU, 8GB RAM, ARM/Graviton):
+# ──────────────────────────────────────────────────────────
+# ArgoCD (5 pods):    ~300m CPU, ~512Mi RAM
+# Karpenter:          ~200m CPU, ~256Mi RAM
+# External Secrets:   ~100m CPU, ~192Mi RAM
+# Kyverno (4 pods):   ~200m CPU, ~384Mi RAM
+# Prometheus:         ~300m CPU, ~1Gi RAM
+# Grafana:            ~100m CPU, ~333Mi RAM
+# Prom Operator:      ~100m CPU, ~128Mi RAM
+# Reloader:           ~20m CPU, ~32Mi RAM
+# Velero:             ~50m CPU, ~128Mi RAM
+# Trivy:              ~50m CPU, ~128Mi RAM
+# DaemonSets (6):     ~280m CPU, ~400Mi RAM
+# ──────────────────────────────────────────────────────────
+# TOTAL:             ~1700m CPU, ~3.5Gi RAM  (44% of 8GB — comfortable headroom)
+# maxSize=2 for HA — second node auto-provisions if first fails
+#
+# APP NODE (t3a.medium: 2 vCPU, 4GB RAM, x86):
+# ─────────────────────────────────────────────
+# Vendure Server:     ~100m CPU, ~153Mi RAM (idle)
+# Argo Rollouts:      ~100m CPU, ~64Mi RAM (1 replica)
+# CoreDNS:            ~100m CPU, ~70Mi RAM
+# EBS CSI:            ~50m CPU, ~128Mi RAM
+# ALB Controller:     ~50m CPU, ~64Mi RAM
+# Prometheus Adapter: ~25m CPU, ~64Mi RAM
+# DaemonSets (6):     ~280m CPU, ~400Mi RAM
+# ─────────────────────────────────────────────
+# TOTAL:             ~705m CPU, ~943Mi RAM  (24% of 4GB — light usage)
+#
+# KARPENTER NODE (t3a.medium: 2 vCPU, 4GB RAM, x86):
+# ───────────────────────────────────────────────────
+# Vendure Server:     ~100m CPU, ~512Mi RAM (request); 1000m/1536Mi (limit)
+# Vendure Worker:     ~100m CPU, ~384Mi RAM (request); 500m/1024Mi (limit)
+# DaemonSets (6):     ~280m CPU, ~400Mi RAM
+# ───────────────────────────────────────────────────
+# TOTAL:             ~480m CPU, ~1.3Gi RAM
+#
+# =============================================================================
+
+# =============================================================================
+# SUBNET MAP
+# =============================================================================
+# subnet-093434190cf5e4068 → ap-south-1c (192.168.0.0/19)
+# subnet-0638daa85aba925fc → ap-south-1a (192.168.32.0/19)
+# subnet-0151de046e8f6d60b → ap-south-1b (192.168.64.0/19)
+#
+# PVC AZ bindings:
+#   ap-south-1c: Prometheus (20Gi), Grafana (10Gi)
+#   ap-south-1b: Loki (10Gi), Tempo (5Gi), AlertManager (2Gi)
+# =============================================================================

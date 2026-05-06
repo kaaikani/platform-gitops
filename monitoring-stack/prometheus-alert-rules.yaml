@@ -1,0 +1,228 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  alerts.yml: |
+    groups:
+
+    # ============================================
+    # EKS CLUSTER HEALTH ALERTS
+    # ============================================
+    - name: eks_cluster_health
+      interval: 30s
+      rules:
+
+      # Alert when nodes are not ready
+      - alert: NodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: node
+        annotations:
+          summary: "Node {{ $labels.node }} is not ready"
+          description: "Node {{ $labels.node }} has been not ready for more than 5 minutes."
+
+      # Alert when node memory usage is high
+      - alert: NodeMemoryPressure
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+          component: node
+        annotations:
+          summary: "Node {{ $labels.instance }} has high memory pressure"
+          description: "Node memory available is below 10% (current: {{ $value | humanize }}%)"
+
+      # Alert when node CPU usage is high
+      - alert: NodeHighCPU
+        expr: (100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: node
+        annotations:
+          summary: "Node {{ $labels.instance }} has high CPU usage"
+          description: "Node CPU usage is above 80% (current: {{ $value | humanize }}%)"
+
+    # ============================================
+    # POD HEALTH ALERTS
+    # ============================================
+    - name: pod_health
+      interval: 30s
+      rules:
+
+      # Alert when Vendure pods are not running
+      - alert: VendurePodDown
+        expr: kube_pod_status_phase{namespace="vendure-production", phase!="Running"} > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: vendure
+        annotations:
+          summary: "Vendure pod {{ $labels.pod }} is not running"
+          description: "Pod {{ $labels.pod }} in vendure-production namespace is in {{ $labels.phase }} state"
+
+      # Alert when pods are restarting frequently
+      - alert: PodFrequentRestarts
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: pod
+        annotations:
+          summary: "Pod {{ $labels.pod }} is restarting frequently"
+          description: "Pod {{ $labels.pod }} in {{ $labels.namespace }} has restarted {{ $value }} times in the last 15 minutes"
+
+      # Alert when pods are pending for too long
+      - alert: PodStuckPending
+        expr: kube_pod_status_phase{phase="Pending"} > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: pod
+        annotations:
+          summary: "Pod {{ $labels.pod }} stuck in Pending state"
+          description: "Pod {{ $labels.pod }} in {{ $labels.namespace }} has been pending for more than 10 minutes"
+
+      # Alert when pod CPU usage is high
+      - alert: PodHighCPU
+        expr: sum(rate(container_cpu_usage_seconds_total{namespace="vendure-production"}[5m])) by (pod) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: pod
+        annotations:
+          summary: "Pod {{ $labels.pod }} has high CPU usage"
+          description: "Pod CPU usage is above 80%"
+
+      # Alert when pod memory usage is high
+      - alert: PodHighMemory
+        expr: (container_memory_usage_bytes{namespace="vendure-production"} / container_spec_memory_limit_bytes{namespace="vendure-production"}) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: pod
+        annotations:
+          summary: "Pod {{ $labels.pod }} has high memory usage"
+          description: "Pod memory usage is above 85%"
+
+    # ============================================
+    # MONITORING STACK HEALTH
+    # ============================================
+    - name: monitoring_health
+      interval: 30s
+      rules:
+
+      # Alert when Prometheus is down
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: monitoring
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus has been down for more than 2 minutes"
+
+      # Alert when Grafana is down
+      - alert: GrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Grafana is down"
+          description: "Grafana has been down for more than 2 minutes"
+
+    # ============================================
+    # APPLICATION HEALTH ALERTS
+    # ============================================
+    - name: application_health
+      interval: 30s
+      rules:
+
+      # Alert when Vendure API is down
+      - alert: VendureAPIDown
+        expr: up{job="vendure-vendure-stack-vendure"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: vendure
+        annotations:
+          summary: "Vendure API is down"
+          description: "Vendure API has been unreachable for more than 2 minutes"
+
+      # Alert when Vendure response time is high
+      - alert: VendureHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="vendure-vendure-stack-vendure"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: vendure
+        annotations:
+          summary: "Vendure API has high latency"
+          description: "95th percentile response time is above 2 seconds (current: {{ $value | humanize }}s)"
+
+    # ============================================
+    # STORAGE ALERTS
+    # ============================================
+    - name: storage_alerts
+      interval: 30s
+      rules:
+
+      # Alert when PVC is almost full
+      - alert: PersistentVolumeAlmostFull
+        expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "PVC {{ $labels.persistentvolumeclaim }} is almost full"
+          description: "PVC usage is above 85% (current: {{ $value | humanizePercentage }})"
+
+      # Alert when PVC is critically full
+      - alert: PersistentVolumeCriticallyFull
+        expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "PVC {{ $labels.persistentvolumeclaim }} is critically full"
+          description: "PVC usage is above 95% (current: {{ $value | humanizePercentage }})"
+
+    # ============================================
+    # DEPLOYMENT ALERTS
+    # ============================================
+    - name: deployment_alerts
+      interval: 30s
+      rules:
+
+      # Alert when deployment has no available replicas
+      - alert: DeploymentReplicasUnavailable
+        expr: kube_deployment_status_replicas_available == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: deployment
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} has no available replicas"
+          description: "Deployment {{ $labels.deployment }} in {{ $labels.namespace }} has 0 available replicas"
+
+      # Alert when deployment is not at desired replicas
+      - alert: DeploymentReplicasMismatch
+        expr: kube_deployment_spec_replicas != kube_deployment_status_replicas_available
+        for: 10m
+        labels:
+          severity: warning
+          component: deployment
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} replica mismatch"
+          description: "Deployment {{ $labels.deployment }} has {{ $value }} available replicas but wants {{ $labels.spec_replicas }}"

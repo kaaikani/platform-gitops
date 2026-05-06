@@ -1,0 +1,56 @@
+# =============================================================================
+# ArgoCD Application - Prometheus MySQL Exporter
+# =============================================================================
+# Exports RDS MySQL metrics to Prometheus.
+# Enables DBConnectionPoolExhaustion and RDS health alerts.
+#
+# PREREQUISITE: Copy vendure-secrets to monitoring namespace once:
+#   kubectl get secret vendure-secrets -n vendure-production -o json \
+#     | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp)' \
+#     | kubectl apply -n monitoring -f -
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mysql-exporter
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: monitoring
+    component: mysql-exporter
+spec:
+  project: default
+
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: prometheus-mysql-exporter
+      targetRevision: 2.6.1
+      helm:
+        releaseName: mysql-exporter
+        valueFiles:
+          - $values/environments/production/mysql-exporter-values.yaml
+    - repoURL: https://github.com/kaaikani/platform-gitops.git
+      targetRevision: master
+      ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

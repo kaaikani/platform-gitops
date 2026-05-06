@@ -1,0 +1,79 @@
+# =============================================================================
+# ArgoCD Image Updater
+# =============================================================================
+# Watches ECR for new image tags and automatically updates deployments.
+# When a new image is pushed to ECR, Image Updater detects it, commits
+# the new tag to git, and ArgoCD deploys it — no manual tag updates needed.
+#
+# Write-back: git (commits updated tag back to repo → ArgoCD deploys)
+#
+# One-time setup required (run once, never again):
+#   kubectl create secret generic argocd-image-updater-secret \
+#     -n argocd \
+#     --from-literal=git.user=<github-username> \
+#     --from-literal=git.password=<github-personal-access-token>
+#
+# IAM Role required for ECR read access:
+#   aws iam create-role --role-name argocd-image-updater-role ...
+#   Attach policy: arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+#   eksctl create iamserviceaccount \
+#     --name argocd-image-updater \
+#     --namespace argocd \
+#     --cluster vendure-prod-cluster \
+#     --attach-policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly \
+#     --approve --override-existing-serviceaccounts
+# =============================================================================
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    environment: production
+    app: argocd-image-updater
+spec:
+  project: default
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argocd-image-updater
+    targetRevision: "0.10.2"
+    helm:
+      releaseName: argocd-image-updater
+      values: |
+        # IRSA — IAM role for ECR read access
+        serviceAccount:
+          annotations:
+            eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/argocd-image-updater-role
+
+        # ECR registry configuration
+        config:
+          registries:
+            - name: ECR ap-south-1
+              api_url: https://149536454380.dkr.ecr.ap-south-1.amazonaws.com
+              prefix: 149536454380.dkr.ecr.ap-south-1.amazonaws.com
+              ping: yes
+              insecure: no
+
+        # Log level for debugging (set to debug when troubleshooting)
+        logLevel: info
+
+        # Poll ECR every 2 minutes for new tags
+        image:
+          pullPolicy: Always
+        updateStrategy:
+          default: semver
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

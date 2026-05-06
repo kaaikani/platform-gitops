@@ -1,0 +1,55 @@
+# =============================================================================
+# ArgoCD Application - Monitoring Dashboards & Alerting Rules
+# =============================================================================
+# Deploys all raw YAML in helm/monitoring-stack/:
+#   - Grafana dashboard ConfigMaps (Vendure, Storefronts, Cloudflare, K8s)
+#   - Loki log dashboard ConfigMaps (Vendure Logs, Storefronts Logs)
+#   - PrometheusRule alert rules
+#   - AlertManager config
+#   - SLO rules (applied via kubectl apply in monitoring namespace)
+#
+# Sync wave: 1 (after monitoring-stack Helm chart is installed)
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-dashboards
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: monitoring
+    component: dashboards
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: master
+    path: monitoring-stack
+    directory:
+      recurse: false
+      include: "*.yaml"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,244 @@
+# Production values for vendure-stack
+# Usage: helm install vendure ./vendure-stack -f values-production.yaml -n vendure-production
+#
+# IMPORTANT: Replace all placeholders marked with <...> before deploying
+
+global:
+  namespace: vendure-production
+  environment: production
+  # ECR registry
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+vendure:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: vendure-test
+    tag: "devops-v1.0.5" # Use specific version tags in production (e.g., "v1.2.3")
+    # IMPORTANT: Never use "latest" in production - always pin to specific version
+    pullPolicy: Always
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "600m"
+    limits:
+      memory: "1Gi"
+      cpu: "1500m"
+  service:
+    type: ClusterIP
+    ports:
+      server:
+        port: 80
+      admin:
+        port: 3002
+  env:
+    NODE_ENV: production
+    APP_ENV: production
+    SUPERADMIN_USERNAME: superadmin
+  # Pod annotations (for Prometheus scraping, etc.)
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/metrics"
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 120
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 5
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 6
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    # MUST stay at 4 — pool=30 × 4 pods = 120 connections, fits 170-conn RDS budget
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 150
+    targetMemoryUtilizationPercentage: 85
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1 # More flexible for cluster upgrades
+  # nodeSelector is set in environments/production/vendure-values.yaml (node-group: app)
+  nodeSelector: {}
+  affinity: {}
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster MySQL - Using Amazon RDS
+mysql:
+  enabled: false
+# External Amazon RDS MySQL
+externalDatabase:
+  enabled: true
+  host: "test-5.cbq8i48yyklk.ap-south-1.rds.amazonaws.com"
+  port: 3306
+  database: wow_vendure
+  username: admin
+  # Reference to Kubernetes secret
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "DB_PASSWORD"
+# =============================================================================
+# REDIS CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster Redis - Using Redis Cloud
+redis:
+  enabled: false
+# External Redis Cloud
+externalRedis:
+  enabled: true
+  host: "redis-17207.crce179.ap-south-1-1.ec2.redns.redis-cloud.com"
+  port: 17207
+  username: "default"
+  # Reference to Kubernetes secret
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "REDIS_PASSWORD"
+# =============================================================================
+# AWS S3 CONFIGURATION (Asset Storage)
+# =============================================================================
+s3:
+  enabled: true
+  bucket: "cdn.kaaikani.co.in"
+  region: "ap-south-1"
+  assetPath: "assets/"
+  # SECURITY: Use IRSA (IAM Roles for Service Accounts) instead of access keys
+  useIRSA: true # Set to true to use IRSA, false to use access keys (NOT RECOMMENDED)
+  existingSecret: "vendure-secrets"
+  accessKeyIdKey: "AWS_ACCESS_KEY_ID" # Only used if useIRSA: false
+  secretAccessKeyKey: "AWS_SECRET_ACCESS_KEY" # Only used if useIRSA: false
+# =============================================================================
+# MONITORING CONFIGURATION
+# =============================================================================
+# IMPORTANT: Prometheus & Grafana are deployed SEPARATELY in 'monitoring' namespace
+# using kube-prometheus-stack helm chart for better isolation and reliability
+# =============================================================================
+
+# Disable in-chart Prometheus components - Using separate kube-prometheus-stack in monitoring namespace
+prometheus:
+  enabled: false
+  server:
+    enabled: false
+  pushgateway:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  kubeStateMetrics:
+    enabled: false
+# Disable in-chart Grafana - Using separate kube-prometheus-stack
+grafana:
+  enabled: false
+# Disable node-exporter (already running in monitoring namespace)
+prometheus:
+  nodeExporter:
+    enabled: false
+# ServiceMonitor for external Prometheus to scrape Vendure metrics
+serviceMonitor:
+  enabled: true
+  namespace: monitoring # Where Prometheus is installed
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus-stack # Must match Prometheus selector
+# PrometheusRule for Vendure-specific alerts
+prometheusRule:
+  enabled: true
+  namespace: monitoring
+  labels:
+    release: prometheus-stack
+  rules:
+    - alert: VendureHighErrorRate
+      expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High error rate on Vendure"
+        description: "Error rate is above 10% for 5 minutes"
+    - alert: VendurePodNotReady
+      expr: kube_pod_status_ready{namespace="vendure-production",condition="true"} == 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Vendure pod not ready"
+        description: "Pod {{ $labels.pod }} has been not ready for 5 minutes"
+# =============================================================================
+# INGRESS CONFIGURATION (AWS ALB)
+# =============================================================================
+ingress:
+  enabled: false # Disabled - using unified-ingress.yaml instead
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d"
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+  hosts:
+    - host: kaaikani.co.in
+      paths:
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 80
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+networkPolicies:
+  enabled: true
+secrets:
+  # Set to false - we create secrets manually via kubectl
+  create: false
+  existingSecret: "vendure-secrets"
+serviceAccount:
+  create: true
+  annotations:
+    # For AWS IAM Roles for Service Accounts (IRSA)
+    # IMPORTANT: Create IAM role first using eksctl or AWS CLI, then uncomment and update ARN below
+    # eksctl create iamserviceaccount --name vendure-sa --namespace vendure-production \
+    #   --cluster vendure-cluster --attach-policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess \
+    #   --approve --override-existing-serviceaccounts
+    eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/vendure-production-role
+    # TODO: Replace above ARN with actual IAM role ARN after creating service account
+# =============================================================================
+# SECURITY WARNING: SECRETS MANAGEMENT
+# =============================================================================
+# ⚠️  NEVER commit secrets to Git or store them in values files!
+#
+# For production, use one of these secure methods:
+#
+# 1. AWS Secrets Manager + External Secrets Operator (RECOMMENDED)
+#    - Install: helm install external-secrets external-secrets/external-secrets
+#    - Store secrets in AWS Secrets Manager
+#    - External Secrets Operator syncs them to Kubernetes
+#
+# 2. Manual Secret Creation (for testing only)
+#    kubectl create secret generic vendure-secrets \
+#      --namespace vendure-production \
+#      --from-literal=DB_USERNAME=<username> \
+#      --from-literal=DB_PASSWORD=<password> \
+#      --from-literal=REDIS_USERNAME=<username> \
+#      --from-literal=REDIS_PASSWORD=<password> \
+#      --from-literal=COOKIE_SECRET=$(openssl rand -base64 32) \
+#      --from-literal=SUPERADMIN_PASSWORD=<password> \
+#      --from-literal=S3_BUCKET=<bucket-name>
+#    # Note: AWS credentials should use IRSA, not access keys
+#
+# 3. Sealed Secrets (for GitOps)
+#    - Encrypt secrets before committing to Git
+#    - Sealed Secrets controller decrypts in cluster
+#
+# IMPORTANT: Remove any hardcoded secrets from this file before committing!
+# =============================================================================

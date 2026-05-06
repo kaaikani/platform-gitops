@@ -1,0 +1,167 @@
+# =============================================================================
+# PROMETHEUS STACK - LOCAL CONFIGURATION
+# =============================================================================
+# Includes: Prometheus, Grafana, Alertmanager, Node Exporter, Kube State Metrics
+# For local testing (Minikube/Docker Desktop/Kind)
+# =============================================================================
+
+# Prometheus configuration
+prometheus:
+  enabled: true
+  prometheusSpec:
+    retention: 7d  # 7 days for local
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi  # Small size for local
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    service:
+      type: NodePort
+      nodePort: 31090
+
+# Grafana configuration
+grafana:
+  enabled: true
+  adminPassword: admin  # Default password for local
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClassName: standard
+  service:
+    type: NodePort
+    nodePort: 30000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Pre-configure datasources
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus-stack-kube-prom-prometheus:9090
+          isDefault: true
+          editable: false
+          uid: prometheus
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki:3100
+          editable: false
+          uid: loki
+        - name: Tempo
+          type: tempo
+          access: proxy
+          url: http://tempo:3200
+          editable: false
+          uid: tempo
+          jsonData:
+            tracesToLogs:
+              datasourceUid: loki
+              tags: ['job', 'instance', 'pod', 'namespace']
+            tracesToMetrics:
+              datasourceUid: prometheus
+              tags: [{ key: 'service.name', value: 'service' }]
+            serviceMap:
+              datasourceUid: prometheus
+            nodeGraph:
+              enabled: true
+
+# Alertmanager (optional for local)
+alertmanager:
+  enabled: false  # Disable for local testing
+
+# Node Exporter
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Kube State Metrics
+kubeStateMetrics:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Prometheus Operator
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Default rules (minimal for local)
+defaultRules:
+  create: true
+  rules:
+    alertmanager: false
+    etcd: false
+    configReloaders: true
+    general: true
+    k8s: true
+    kubeApiserverAvailability: true
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
+    kubelet: true
+    kubeProxy: false
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeStateMetrics: true
+    network: false
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
+    time: false
+
+# ServiceMonitor for Vendure (will be created separately)
+serviceMonitorSelectorNilUsesHelmValues: false
+
+# =============================================================================
+# LOCAL TESTING NOTES
+# =============================================================================
+#
+# Access:
+#   Grafana: kubectl port-forward -n monitoring svc/prometheus-stack-grafana 3000:80
+#   Prometheus: kubectl port-forward -n monitoring svc/prometheus-stack-kube-prom-prometheus 9090:9090
+#
+# Default credentials:
+#   Grafana: admin / admin
+#
+# =============================================================================
+

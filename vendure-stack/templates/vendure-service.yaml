@@ -1,0 +1,27 @@
+{{- if .Values.vendure.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-vendure
+  labels:
+    {{- include "vendure-stack.vendure.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.vendure.service.type }}
+  ports:
+    - name: server
+      port: {{ .Values.vendure.service.ports.server.port }}
+      targetPort: server
+      protocol: TCP
+      {{- if and (eq .Values.vendure.service.type "NodePort") .Values.vendure.service.ports.server.nodePort }}
+      nodePort: {{ .Values.vendure.service.ports.server.nodePort }}
+      {{- end }}
+    - name: admin
+      port: {{ .Values.vendure.service.ports.admin.port }}
+      targetPort: admin
+      protocol: TCP
+      {{- if and (eq .Values.vendure.service.type "NodePort") .Values.vendure.service.ports.admin.nodePort }}
+      nodePort: {{ .Values.vendure.service.ports.admin.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "vendure-stack.vendure.selectorLabels" . | nindent 4 }}
+{{- end }}

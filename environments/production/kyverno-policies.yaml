@@ -1,0 +1,259 @@
+# =============================================================================
+# KYVERNO POLICIES - SUPPLY CHAIN SECURITY & POLICY ENFORCEMENT
+# =============================================================================
+# Enforces security policies across the cluster using Kyverno policy engine
+#
+# Installation:
+#   helm repo add kyverno https://kyverno.github.io/kyverno/
+#   helm repo update
+#   helm install kyverno kyverno/kyverno -n kyverno --create-namespace \
+#     --set replicaCount=1 \
+#     --set resources.requests.cpu=100m \
+#     --set resources.requests.memory=256Mi
+#
+#   # Then apply policies:
+#   kubectl apply -f kyverno-policies.yaml
+#
+# Cost: ~100m CPU, ~256Mi RAM
+# =============================================================================
+
+---
+# =============================================================================
+# POLICY 1: Require images from private ECR registry only
+# =============================================================================
+# Blocks any container image NOT from your ECR registry
+# Prevents developers from deploying random Docker Hub images
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-ecr-images
+  annotations:
+    policies.kyverno.io/title: Require ECR Images
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      All container images must come from the approved ECR registry.
+      This prevents deployment of untrusted or unscanned images.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: validate-image-registry
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - vendure-production
+                - kubecost
+      validate:
+        message: >-
+          All images must be from the approved ECR registry 149536454380.dkr.ecr.ap-south-1.amazonaws.com/
+        pattern:
+          spec:
+            containers:
+              - image: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/*"
+
+---
+# =============================================================================
+# POLICY 2: Disallow 'latest' tag
+# =============================================================================
+# Forces teams to use specific version tags
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: validate-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - vendure-production
+      validate:
+        message: >-
+          Using 'latest' tag is not allowed in production. Use a specific version tag (e.g., v1.2.3).
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+
+---
+# =============================================================================
+# POLICY 3: Require resource limits
+# =============================================================================
+# All pods must have CPU and memory limits set
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/category: Resource Management
+    policies.kyverno.io/severity: medium
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: validate-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - vendure-production
+                - monitoring
+                - kubecost
+      validate:
+        message: "All containers must have CPU and memory limits defined."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+
+---
+# =============================================================================
+# POLICY 4: Require non-root containers
+# =============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-non-root
+  annotations:
+    policies.kyverno.io/title: Require Non-Root Containers
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: validate-non-root
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - vendure-production
+                - kubecost
+      validate:
+        message: "Containers must run as non-root user."
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: false
+
+---
+# =============================================================================
+# POLICY 5: Require labels on all pods
+# =============================================================================
+# Ensures pods have required labels for observability
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-labels
+  annotations:
+    policies.kyverno.io/title: Require Standard Labels
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: low
+spec:
+  validationFailureAction: Audit  # Audit mode - warn but don't block
+  background: true
+  rules:
+    - name: validate-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - vendure-production
+                - monitoring
+                - kubecost
+      validate:
+        message: "Pods must have 'app' and 'version' labels for observability."
+        pattern:
+          metadata:
+            labels:
+              app: "?*"
+
+---
+# =============================================================================
+# POLICY 6: Auto-add network policy label
+# =============================================================================
+# Mutating policy: automatically adds network policy labels
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-network-labels
+  annotations:
+    policies.kyverno.io/title: Add Network Policy Labels
+    policies.kyverno.io/category: Networking
+    policies.kyverno.io/severity: low
+spec:
+  rules:
+    - name: add-network-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - vendure-production
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              network-policy: enabled
+
+---
+# =============================================================================
+# POLICY 7: Restrict volume types
+# =============================================================================
+# Only allow specific volume types (no hostPath in production)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-volume-types
+  annotations:
+    policies.kyverno.io/title: Restrict Volume Types
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restrict-hostpath
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - vendure-production
+                - monitoring
+                - kubecost
+                - argocd
+      validate:
+        message: "HostPath volumes are not allowed in production/test namespaces."
+        pattern:
+          spec:
+            =(volumes):
+              - X(hostPath): "null"

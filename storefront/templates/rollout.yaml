@@ -1,0 +1,160 @@
+{{- if and .Values.storefront.enabled .Values.storefront.blueGreen.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "storefront.fullname" . }}
+  labels:
+    {{- include "storefront.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+spec:
+  replicas: {{ .Values.storefront.replicaCount }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "storefront.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: storefront
+  strategy:
+    blueGreen:
+      activeService: {{ include "storefront.fullname" . }}
+      previewService: {{ include "storefront.fullname" . }}-preview
+      autoPromotionEnabled: {{ .Values.storefront.blueGreen.autoPromotionEnabled | default true }}
+      {{- if .Values.storefront.blueGreen.autoPromotionSeconds }}
+      autoPromotionSeconds: {{ .Values.storefront.blueGreen.autoPromotionSeconds }}
+      {{- end }}
+      scaleDownDelaySeconds: {{ .Values.storefront.blueGreen.scaleDownDelaySeconds | default 30 }}
+      previewReplicaCount: {{ .Values.storefront.blueGreen.previewReplicaCount | default 1 }}
+  template:
+    metadata:
+      annotations:
+        {{- toYaml .Values.storefront.podAnnotations | nindent 8 }}
+      labels:
+        {{- include "storefront.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: storefront
+        app: storefront
+    spec:
+      securityContext:
+        runAsNonRoot: {{ .Values.storefront.securityContext.runAsNonRoot | default true }}
+        runAsUser: {{ .Values.storefront.securityContext.runAsUser | default 1000 }}
+        fsGroup: {{ .Values.storefront.securityContext.fsGroup | default 1000 }}
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: {{ .Values.storefront.terminationGracePeriodSeconds | default 30 }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      dnsPolicy: {{ .Values.storefront.dnsPolicy | default "ClusterFirst" }}
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+          - name: edns0
+        searches:
+          - {{ .Release.Namespace }}.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+      containers:
+        - name: storefront
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: {{ .Values.storefront.securityContext.readOnlyRootFilesystem | default false }}
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: {{ .Values.storefront.securityContext.runAsNonRoot | default true }}
+            runAsUser: {{ .Values.storefront.securityContext.runAsUser | default 1000 }}
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.storefront.image.repository }}:{{ .Values.storefront.image.tag }}"
+          imagePullPolicy: {{ .Values.storefront.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.storefront.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.storefront.env.NODE_ENV | quote }}
+            - name: PORT
+              value: {{ .Values.storefront.env.PORT | quote }}
+            - name: VENDURE_API_URL
+              value: {{ .Values.storefront.env.VENDURE_API_URL | quote }}
+            - name: HYGRAPH_ENDPOINT
+              value: {{ .Values.storefront.env.HYGRAPH_ENDPOINT | quote }}
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "storefront.secretName" . }}
+                  key: GOOGLE_CLIENT_ID
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "storefront.secretName" . }}
+                  key: GOOGLE_CLIENT_SECRET
+          resources:
+            {{- toYaml .Values.storefront.resources | nindent 12 }}
+          {{- if .Values.storefront.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.storefront.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.storefront.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.storefront.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.storefront.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.storefront.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.storefront.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.storefront.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.storefront.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.storefront.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.storefront.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.storefront.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.storefront.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.storefront.startupProbe.path | default "/" }}
+              port: http
+            initialDelaySeconds: {{ .Values.storefront.startupProbe.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.storefront.startupProbe.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.storefront.startupProbe.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.storefront.startupProbe.failureThreshold | default 30 }}
+          {{- end }}
+          {{- if .Values.storefront.enableGracefulShutdown }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          {{- end }}
+          {{- if .Values.storefront.securityContext.readOnlyRootFilesystem }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: node-cache
+              mountPath: /home/node/.cache
+          {{- end }}
+      {{- if .Values.storefront.securityContext.readOnlyRootFilesystem }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: node-cache
+          emptyDir:
+            sizeLimit: 200Mi
+      {{- end }}
+      {{- with .Values.storefront.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.storefront.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.storefront.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.storefront.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

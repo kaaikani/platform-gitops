@@ -1,0 +1,19 @@
+{{- if and .Values.storefront.enabled .Values.storefront.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "storefront.fullname" . }}
+  labels:
+    {{- include "storefront.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+spec:
+  {{- if .Values.storefront.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.storefront.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.storefront.podDisruptionBudget.maxUnavailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "storefront.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: storefront
+{{- end }}

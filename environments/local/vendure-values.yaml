@@ -1,0 +1,263 @@
+# =============================================================================
+# VENDURE LOCAL DEVELOPMENT ENVIRONMENT VALUES
+# =============================================================================
+# Environment: LOCAL (vendure-local namespace)
+# Purpose: Local development on Minikube/Docker Desktop/Kind
+#
+# Architecture:
+#   - Single replica for fast iteration
+#   - Minimal resources for local machine
+#   - Local image (no registry needed)
+#   - External MySQL/Redis (host machine or containers)
+#   - No monitoring stack (optional)
+#
+# Usage:
+#   kubectl create namespace vendure-local
+#   helm install vendure-local ./helm/vendure-stack \
+#     -n vendure-local \
+#     -f helm/vendure-stack/values.yaml \
+#     -f helm/vendure-stack/values-local.yaml \
+#     -f helm/environments/local/vendure-values.yaml
+# =============================================================================
+
+global:
+  namespace: vendure-local
+  environment: local
+  imageRegistry: ""
+
+# =============================================================================
+# NAMESPACE CONFIGURATION
+# =============================================================================
+# Note: Use Helm's --create-namespace flag instead of creating manually
+namespace:
+  create: false  # Use --create-namespace flag with helm install/upgrade
+  name: vendure-local
+  podSecurity:
+    enforce: baseline  # Medium security for local
+    audit: baseline
+    warn: restricted
+
+# =============================================================================
+# VENDURE APPLICATION
+# =============================================================================
+vendure:
+  enabled: true
+
+  # Single replica for local development
+  replicaCount: 1
+
+  image:
+    repository: vendure-local
+    tag: fixed  # Use newly built image with correct file paths
+    pullPolicy: Never  # Use local image (no registry)
+
+  # Minimal resources for local development
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  service:
+    type: NodePort
+    ports:
+      server:
+        port: 8001
+        nodePort: 31080
+      admin:
+        port: 3002
+        nodePort: 31082
+
+  env:
+    NODE_ENV: development
+    APP_ENV: local
+    SUPERADMIN_USERNAME: superadmin
+    # OpenTelemetry Tracing Configuration (for local testing)
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+    OTEL_SERVICE_NAME: "vendure-local"
+    OTEL_RESOURCE_ATTRIBUTES: "service.name=vendure-local,service.version=local,deployment.environment=local"
+
+  # Disable health checks for faster development
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+
+  # Disable autoscaling for local
+  autoscaling:
+    enabled: false
+
+  # Disable PDB for local
+  podDisruptionBudget:
+    enabled: false
+
+  # No node selectors/tolerations needed for local
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # No pod annotations needed
+  podAnnotations: {}
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster MySQL - Use host MySQL (working setup)
+mysql:
+  enabled: false
+
+# External Database (host MySQL - already working)
+externalDatabase:
+  enabled: true
+  host: "host.minikube.internal"  # Minikube: reach host machine
+  port: 3306
+  database: "wow_vendure"
+  username: "root"
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "DB_PASSWORD"
+  # host: "host.minikube.internal"  # Minikube: reach host machine
+  # host: "host.docker.internal"  # Docker Desktop: reach host machine
+  # host: "localhost"              # Kind: may need port-forward
+  # port: 3306
+  # database: "wow_vendure"
+  # username: "root"
+  # existingSecret: "vendure-secrets"
+  # existingSecretPasswordKey: "DB_PASSWORD"
+
+# =============================================================================
+# REDIS CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster Redis - Use simple Redis (already working)
+redis:
+  enabled: false
+
+# External Redis - Use simple Redis deployment (already running)
+externalRedis:
+  enabled: true
+  host: "redis-simple.vendure-local.svc.cluster.local"  # Simple Redis service
+  port: 6379
+  username: ""
+  # host: "redis-simple.vendure-local.svc.cluster.local"  # In-cluster Redis service
+  # host: "host.minikube.internal"  # Host Redis (requires bind 0.0.0.0)
+  # port: 6379
+  # username: ""
+  # host: "host.minikube.internal"  # Minikube - requires Redis to bind to 0.0.0.0
+  # host: "host.docker.internal"  # Docker Desktop
+  # host: "redis"                 # If running Redis in K8s
+  # port: 6379
+  # username: ""
+
+# =============================================================================
+# AWS S3 CONFIGURATION (Optional for local)
+# =============================================================================
+s3:
+  enabled: false  # Disable S3 for local development (use local storage)
+  # enabled: true
+  # bucket: "cdn.kaaikani.co.in"  # Or use local storage
+  # region: "ap-south-1"
+  # assetPath: "assets/"
+  # existingSecret: "vendure-secrets"
+  # accessKeyIdKey: "AWS_ACCESS_KEY_ID"
+  # secretAccessKeyKey: "AWS_SECRET_ACCESS_KEY"
+
+# =============================================================================
+# MONITORING CONFIGURATION
+# =============================================================================
+prometheus:
+  enabled: false  # Disable for local (optional)
+
+grafana:
+  enabled: false  # Disable for local (optional)
+
+# Disable ServiceMonitor for local
+serviceMonitor:
+  enabled: false
+
+# Disable PrometheusRules for local
+prometheusRule:
+  enabled: false
+
+# =============================================================================
+# INGRESS CONFIGURATION
+# =============================================================================
+ingress:
+  enabled: false  # Use port-forwarding for local access
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+networkPolicies:
+  enabled: false  # Disable for easier local development
+
+secrets:
+  create: true
+  existingSecret: ""  # Will create vendure-secrets
+  database:
+    rootPassword: "1234"
+    password: "1234"
+  vendure:
+    cookieSecret: "local-dev-cookie-secret-change-me"
+    superadminPassword: "admin123"
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+# =============================================================================
+# RBAC (Role-Based Access Control)
+# =============================================================================
+rbac:
+  enabled: true  # Enable RBAC for local development
+  
+  # List of developer usernames (read-only access)
+  # For local, you can add your username or leave empty
+  developers: [
+    
+  ]
+  # Example:
+  # developers:
+  #   - developer1@example.com
+  
+  # List of devops usernames (full access to application resources)
+  devops: []
+  # Example:
+  # devops:
+  #   - devops1@example.com
+  
+  # List of read-only usernames (view-only, cannot modify)
+  readOnly: []
+  # Example:
+  # readOnly:
+  #   - manager@example.com
+
+# =============================================================================
+# LOCAL DEVELOPMENT NOTES
+# =============================================================================
+#
+# 1. Build local image:
+#    docker build -t vendure-local:latest .
+#
+# 2. Load into Minikube:
+#    minikube image load vendure-local:latest
+#
+# 3. For Docker Desktop/Kind, image is available locally
+#
+# 4. Access application:
+#    kubectl port-forward svc/vendure-local 8001:8001 3002:3002 -n vendure-local
+#    Then access: http://localhost:8001/admin-api
+#
+# 5. Database connection:
+#    - Minikube: Use host.minikube.internal to reach host MySQL
+#    - Docker Desktop: Use host.docker.internal
+#    - Kind: May need port-forward or use in-cluster MySQL
+#
+# 6. Redis connection:
+#    - Can use host machine Redis or run Redis in cluster
+#    - For Redis in cluster, set host to service name
+#
+# =============================================================================
+

@@ -1,0 +1,130 @@
+# =============================================================================
+# VELERO - KUBERNETES BACKUP SOLUTION (LOCAL)
+# =============================================================================
+# Velero for local testing (Minikube/Docker Desktop/Kind)
+# Uses S3 backend (same as production for testing)
+#
+# Usage:
+#   1. Setup S3: ./helm/environments/local/setup-velero-s3-local.sh
+#   2. Install: helm install velero vmware-tanzu/velero \
+#        -n velero --create-namespace \
+#        -f helm/environments/local/velero-values.yaml
+# =============================================================================
+
+# Velero configuration
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: vendure-velero-backups-local  # Separate bucket for local testing
+      config:
+        region: ap-south-1
+        # For local: Use AWS SDK default credential chain (from environment)
+        # Don't specify credentialsFile - let it use AWS SDK defaults
+        # For production: Use IRSA (more secure)
+  
+  volumeSnapshotLocation:
+    - name: default
+      provider: aws
+      config:
+        region: ap-south-1
+
+  # Backup settings
+  features: EnableCSI  # Enable CSI snapshot support
+  
+  # Log level
+  logLevel: info
+
+# Backup schedule (daily at 2 AM UTC = 7:30 AM IST)
+schedules:
+  daily-backup:
+    schedule: "0 2 * * *"  # 2 AM daily (UTC)
+    template:
+      includedNamespaces:
+        - vendure-local
+        - monitoring
+      # Exclude system namespaces
+      excludedNamespaces:
+        - kube-system
+        - kube-public
+        - kube-node-lease
+        - default
+      # Include all resources
+      includeClusterResources: true
+      # Snapshot persistent volumes
+      snapshotVolumes: true
+      # Use CSI snapshots (compression handled by Velero)
+      defaultVolumesToFsBackup: false
+      # TTL (retention) - 7 days
+      ttl: 168h  # 7 days
+      # Storage location
+      storageLocation: default
+      # Volume snapshot location
+      volumeSnapshotLocations:
+        - default
+
+# Velero server configuration
+deployNodeAgent: false  # Use CSI snapshots instead (deployRestic renamed to deployNodeAgent)
+
+# Enable AWS plugin (required for S3 backend)
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.9.0
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+# Service account (for local, can use AWS credentials from environment)
+serviceAccount:
+  server:
+    create: true
+    name: velero-server
+    # For local: Can use AWS credentials from ~/.aws/credentials
+    # For production: Use IRSA (set eks.amazonaws.com/role-arn)
+    annotations: {}
+
+# Resources (minimal for local)
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# No node selectors for local
+nodeSelector: {}
+tolerations: []
+
+# Metrics (optional)
+metrics:
+  enabled: false  # Disable for local
+
+# =============================================================================
+# LOCAL TESTING NOTES
+# =============================================================================
+#
+# 1. Setup S3 bucket (separate from production):
+#    ./helm/environments/local/setup-velero-s3-local.sh
+#
+# 2. Configure AWS credentials (one of these):
+#    - AWS CLI: aws configure
+#    - Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+#    - IAM role (if running on EC2)
+#
+# 3. Install Velero:
+#    helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+#    helm repo update
+#    helm install velero vmware-tanzu/velero \
+#      -n velero --create-namespace \
+#      -f helm/environments/local/velero-values.yaml
+#
+# 4. Verify:
+#    velero version
+#    velero backup get
+#
+# 5. Test backup:
+#    velero backup create test-backup --include-namespaces vendure-local
+#
+# =============================================================================
+

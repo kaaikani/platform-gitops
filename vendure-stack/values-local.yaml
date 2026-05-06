@@ -1,0 +1,117 @@
+# Local/Development values for vendure-stack
+# Usage: helm install vendure-local ./vendure-stack -f values-local.yaml -n vendure-local --create-namespace
+
+global:
+  namespace: vendure-local
+  environment: local
+  imageRegistry: ""
+
+vendure:
+  replicaCount: 1
+
+  image:
+    repository: vendure-local
+    tag: latest
+    pullPolicy: Never  # Use local image from minikube docker-env
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  service:
+    type: NodePort
+    ports:
+      server:
+        port: 8001
+        nodePort: 31080
+      admin:
+        port: 3002
+        nodePort: 31082
+
+  env:
+    NODE_ENV: development
+    APP_ENV: local
+    SUPERADMIN_USERNAME: "superadmin"
+
+  # Disable probes for faster development
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+  startupProbe:
+    enabled: false
+
+worker:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Disable Bitnami MySQL - use host machine MySQL via minikube tunnel
+mysql:
+  enabled: false
+
+# Disable Bitnami Redis - use in-cluster simple redis or host redis
+redis:
+  enabled: false
+
+# External database configuration (host machine MySQL via minikube)
+externalDatabase:
+  enabled: true
+  host: "host.minikube.internal"  # Minikube's way to reach host machine
+  port: 3306
+  database: "wow_vendure"
+  username: "root"
+  password: "1234"
+
+# External Redis configuration — point at host machine Redis
+externalRedis:
+  enabled: true
+  host: "host.minikube.internal"
+  port: 6379
+  username: ""
+
+# Disable S3 for local development
+s3:
+  enabled: false
+
+# Disable Prometheus for local dev (reduce resource usage)
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false
+
+ingress:
+  enabled: false
+
+networkPolicies:
+  enabled: false
+
+# Disable monitoring CRDs for local
+serviceMonitor:
+  enabled: false
+prometheusRule:
+  enabled: false
+
+secrets:
+  create: true
+  database:
+    rootPassword: "1234"
+    password: "1234"
+  vendure:
+    cookieSecret: "local-dev-cookie-secret-change-me"
+    superadminPassword: "admin123"
+
+# Point the chart's app-secrets reference at the same stack secret for local
+appSecrets:
+  name: vendure-local-vendure-stack-secrets

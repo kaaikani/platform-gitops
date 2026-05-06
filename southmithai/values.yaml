@@ -1,0 +1,117 @@
+# =============================================================================
+# SOUTH MITHAI HELM CHART - DEFAULT VALUES
+# =============================================================================
+
+global:
+  namespace: southmithai-production
+  environment: production
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+
+namespace:
+  create: false
+  name: southmithai-production
+  podSecurity:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: southmithai
+    tag: "v0.1.4"
+    pullPolicy: Always
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "150m"
+    limits:
+      memory: "768Mi"
+      cpu: "500m"
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8009
+
+  env:
+    NODE_ENV: production
+    PORT: "8009"
+    VENDURE_API_URL: "https://kaaikani.co.in/shop-api"
+    HYGRAPH_ENDPOINT: "https://ap-south-1.cdn.hygraph.com/content/cm5c7pe3p012407uvvb6u1yln/master"
+    GOOGLE_CLIENT_ID: "349081914352-nni3vvjh8kehopt5intedk2vohsmkq48.apps.googleusercontent.com"
+
+  podAnnotations:
+    reloader.stakater.com/auto: "true"
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: false
+
+  terminationGracePeriodSeconds: 30
+  dnsPolicy: ClusterFirst
+
+  livenessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  startupProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 75
+
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 1
+
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+
+# =============================================================================
+# INGRESS
+# =============================================================================
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}
+  hosts: []
+
+# =============================================================================
+# NETWORK POLICIES
+# =============================================================================
+networkPolicies:
+  enabled: false
+
+priorityClassName: ""

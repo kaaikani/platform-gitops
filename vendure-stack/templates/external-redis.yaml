@@ -1,0 +1,19 @@
+{{- if and (not .Values.redis.enabled) .Values.externalRedis .Values.externalRedis.enabled .Values.externalRedis.host }}
+# ExternalName Service pointing to external Redis Cloud
+# This creates a DNS alias inside the cluster that points to the external Redis
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-redis-external
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache
+spec:
+  type: ExternalName
+  externalName: {{ .Values.externalRedis.host }}
+  ports:
+    - port: {{ .Values.externalRedis.port | default 6379 }}
+      targetPort: {{ .Values.externalRedis.port | default 6379 }}
+      protocol: TCP
+      name: redis
+{{- end }}

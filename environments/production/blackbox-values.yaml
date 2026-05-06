@@ -1,0 +1,90 @@
+# =============================================================================
+# PROMETHEUS BLACKBOX EXPORTER - PRODUCTION
+# =============================================================================
+# Probes HTTP/HTTPS endpoints and SSL certificates.
+# Feeds EndpointDown, EndpointSlow, SSLCertExpiringSoon alerts in monitoring-values.yaml.
+#
+# Deploy via ArgoCD: helm/argocd/applications/blackbox.yaml
+# Chart: prometheus-community/prometheus-blackbox-exporter
+# =============================================================================
+
+# Probe modules
+config:
+  modules:
+    http_2xx:
+      prober: http
+      timeout: 10s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: []  # defaults to 2xx
+        method: GET
+        follow_redirects: true
+        preferred_ip_protocol: "ip4"
+        tls_config:
+          insecure_skip_verify: false
+
+    http_2xx_no_redirect:
+      prober: http
+      timeout: 10s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200, 301, 302]
+        method: GET
+        follow_redirects: false
+        preferred_ip_protocol: "ip4"
+
+# Prometheus ServiceMonitor — scrapes probe results into Prometheus
+serviceMonitor:
+  enabled: true
+  defaults:
+    labels:
+      release: prometheus-stack
+    interval: 60s
+    scrapeTimeout: 30s
+
+  # Endpoints to probe — add all production URLs here
+  targets:
+    # Vendure storefronts
+    - name: southmithai
+      url: https://southmithai.com
+      module: http_2xx
+      labels:
+        service: storefront
+        channel: southmithai
+
+    - name: swadkerala
+      url: https://swadkerala.com
+      module: http_2xx
+      labels:
+        service: storefront
+        channel: swadkerala
+
+    # Vendure API health
+    - name: vendure-api
+      url: https://kaaikani.co.in/health
+      module: http_2xx
+      labels:
+        service: vendure
+        component: api
+
+    # Monitoring UIs
+    - name: grafana
+      url: https://grafa.kaaikani.co.in/api/health
+      module: http_2xx
+      labels:
+        service: monitoring
+        component: grafana
+
+# Run on app node (no taint)
+nodeSelector:
+  node-group: app
+
+tolerations: []
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi

@@ -1,0 +1,28 @@
+{{- if .Values.networkPolicies.enabled }}
+# =============================================================================
+# DEFAULT-DENY NETWORK POLICY
+# =============================================================================
+# This policy applies to ALL pods in the namespace and denies all traffic by default.
+# Specific NetworkPolicies (like vendure-allow) will add allow rules on top of this.
+#
+# Security: This ensures that pods without explicit NetworkPolicy cannot communicate
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: vendure-stack
+spec:
+  # Empty podSelector means this applies to ALL pods in the namespace
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # No ingress/egress rules = DENY ALL traffic by default
+  # Other NetworkPolicies will add specific allow rules
+{{- end }}
+

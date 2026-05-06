@@ -1,0 +1,206 @@
+# =============================================================================
+# PLATFORM NODE PATCHES
+# =============================================================================
+# Patches ArgoCD, Kyverno, and ExternalSecrets deployments/statefulsets
+# to run on the platform node group (node-group=platform).
+#
+# The platform node has taint: dedicated=platform:NoSchedule
+# These patches add:
+#   nodeSelector: node-group=platform
+#   tolerations: dedicated=platform:NoSchedule
+#
+# This ensures all platform components are isolated from app (vendure) pods.
+# When vendure OOMs, it cannot affect ArgoCD, Kyverno, or ExternalSecrets.
+# =============================================================================
+
+# --- ArgoCD Application Controller (StatefulSet) ---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: argocd-application-controller
+  namespace: argocd
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- ArgoCD Server ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- ArgoCD Repo Server ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- ArgoCD ApplicationSet Controller ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-applicationset-controller
+  namespace: argocd
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- ArgoCD Redis ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-redis
+  namespace: argocd
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- Kyverno Admission Controller ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyverno-admission-controller
+  namespace: kyverno
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- Kyverno Background Controller ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyverno-background-controller
+  namespace: kyverno
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- Kyverno Cleanup Controller ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyverno-cleanup-controller
+  namespace: kyverno
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- Kyverno Reports Controller ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyverno-reports-controller
+  namespace: kyverno
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- External Secrets Operator ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- External Secrets Webhook ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-secrets-webhook
+  namespace: external-secrets
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule
+---
+# --- External Secrets Cert Controller ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-secrets-cert-controller
+  namespace: external-secrets
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-group: platform
+      tolerations:
+        - key: dedicated
+          value: platform
+          effect: NoSchedule

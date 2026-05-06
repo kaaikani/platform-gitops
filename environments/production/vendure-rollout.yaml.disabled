@@ -1,0 +1,262 @@
+# =============================================================================
+# VENDURE ROLLOUT + CANARY ANALYSIS
+# =============================================================================
+# Replaces the standard Kubernetes Deployment with an Argo Rollout for
+# canary deployments with automatic rollback on error rate spikes.
+#
+# Prerequisites:
+#   - Argo Rollouts controller installed (see argo-rollouts-values.yaml)
+#   - Prometheus running in monitoring namespace
+#
+# Strategy: Canary with automatic Prometheus-based analysis
+#   Step 1: 10% traffic → Analyze for 2 minutes
+#   Step 2: 30% traffic → Analyze for 3 minutes
+#   Step 3: 60% traffic → Analyze for 3 minutes
+#   Step 4: 100% traffic → Done
+#
+# Auto-rollback triggers:
+#   - Error rate > 5%
+#   - P95 latency > 2 seconds
+#   - Pod crash loops (> 2 restarts in 5 minutes)
+#
+# Usage:
+#   1. Update the image tag below to match the new version
+#   2. kubectl apply -f vendure-rollout.yaml
+#   3. Monitor: kubectl argo rollouts get rollout vendure -n vendure-production -w
+#
+# IMPORTANT: Image tag and resources below must be kept in sync with
+# vendure-values.yaml. When you change the image tag in vendure-values.yaml,
+# update it here too if using Argo Rollouts.
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: vendure
+  namespace: vendure-production
+  labels:
+    app: vendure
+    app.kubernetes.io/component: server
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: vendure
+  strategy:
+    canary:
+      canaryService: vendure-canary
+      stableService: vendure-stable
+      trafficRouting:
+        alb:
+          ingress: vendure-production-vendure-stack
+          servicePort: 80
+      steps:
+        - setWeight: 10
+        - pause: {duration: 2m}
+        - analysis:
+            templates:
+              - templateName: vendure-canary-analysis
+            args:
+              - name: service-name
+                value: vendure-canary
+        - setWeight: 30
+        - pause: {duration: 3m}
+        - setWeight: 60
+        - pause: {duration: 3m}
+        - analysis:
+            templates:
+              - templateName: vendure-canary-analysis
+            args:
+              - name: service-name
+                value: vendure-canary
+        - setWeight: 100
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: vendure
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: "/metrics"
+    spec:
+      priorityClassName: vendure-critical
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vendure
+          # SYNC WITH: helm/environments/production/vendure-values.yaml
+          image: 149536454380.dkr.ecr.ap-south-1.amazonaws.com/vendure-prod:devops-v1.0.35
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 80
+              name: http
+            - containerPort: 3002
+              name: admin
+          envFrom:
+            - configMapRef:
+                name: vendure-production-vendure-stack
+            - secretRef:
+                name: vendure-secrets
+          # SYNC WITH: helm/environments/production/vendure-values.yaml
+          resources:
+            requests:
+              cpu: 800m
+              memory: 512Mi
+            limits:
+              cpu: 1500m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: node-cache
+              mountPath: /home/node/.cache
+            - name: admin-ui-dist
+              mountPath: /app/admin-ui/dist
+            - name: assets-cache
+              mountPath: /app/dist/assets/cache
+      initContainers:
+        - name: copy-admin-ui
+          image: 149536454380.dkr.ecr.ap-south-1.amazonaws.com/vendure-prod:devops-v1.0.35
+          command: ["sh", "-c", "cp -a /app/admin-ui/dist/. /admin-ui-dist/"]
+          volumeMounts:
+            - name: admin-ui-dist
+              mountPath: /admin-ui-dist
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 100Mi}
+        - name: node-cache
+          emptyDir: {sizeLimit: 200Mi}
+        - name: admin-ui-dist
+          emptyDir: {sizeLimit: 300Mi}
+        - name: assets-cache
+          emptyDir: {sizeLimit: 200Mi}
+      nodeSelector:
+        node-group: vendure
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: vendure
+
+---
+# =============================================================================
+# CANARY ANALYSIS TEMPLATE
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: vendure-canary-analysis
+  namespace: vendure-production
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: error-rate
+      interval: 30s
+      count: 5
+      successCondition: result[0] < 0.05
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus-stack-kube-prom-prometheus.monitoring.svc:9090
+          query: |
+            sum(rate(http_requests_total{namespace="vendure-production",status=~"5.."}[2m]))
+            / sum(rate(http_requests_total{namespace="vendure-production"}[2m]))
+    - name: latency-p95
+      interval: 30s
+      count: 5
+      successCondition: result[0] < 2.0
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus-stack-kube-prom-prometheus.monitoring.svc:9090
+          query: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{namespace="vendure-production"}[2m])) by (le)
+            )
+    - name: pod-restarts
+      interval: 60s
+      count: 3
+      successCondition: result[0] < 2
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-stack-kube-prom-prometheus.monitoring.svc:9090
+          query: |
+            sum(increase(kube_pod_container_status_restarts_total{namespace="vendure-production"}[5m]))
+
+---
+# =============================================================================
+# CANARY & STABLE SERVICES
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: vendure-canary
+  namespace: vendure-production
+spec:
+  selector:
+    app: vendure
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vendure-stable
+  namespace: vendure-production
+spec:
+  selector:
+    app: vendure
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http

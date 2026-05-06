@@ -1,0 +1,61 @@
+# =============================================================================
+# TRIVY OPERATOR - CONTAINER IMAGE VULNERABILITY SCANNING
+# =============================================================================
+# Scans container images for vulnerabilities and generates CRD reports
+# Integrates with Prometheus via ServiceMonitor
+# =============================================================================
+
+# Operator deployment
+operator:
+  replicas: 1
+
+# Trivy scanner configuration
+trivy:
+  # Severity levels to report
+  severity: CRITICAL,HIGH,MEDIUM
+  # Slow mode to reduce resource usage
+  slow: true
+  # Skip Java DB download (not needed for our workloads)
+  skipJavaDBUpdate: true
+
+# Trivy Operator scan settings
+trivyOperator:
+  # Run scan jobs in the same namespace as the workload
+  scanJobsInSameNamespace: false
+  # Scan jobs tolerations (allow scanning pods on platform node)
+  scanJobTolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "platform"
+      effect: "NoSchedule"
+
+# Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: true
+
+# Operator pod resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Node collector tolerations (needs to run on all nodes)
+nodeCollector:
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "platform"
+      effect: "NoSchedule"
+
+# Schedule operator on platform node
+nodeSelector:
+  dedicated: platform
+
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "platform"
+    effect: "NoSchedule"

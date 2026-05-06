@@ -1,0 +1,18 @@
+# =============================================================================
+# Karpenter NodePool - Monitoring (DEPRECATED — DO NOT USE)
+# =============================================================================
+# Monitoring workloads moved to vendure-prod-platform-ng (AWS managed node group).
+#
+# Reason: Karpenter nodes can be terminated/consolidated at any time.
+#         Monitoring (AlertManager, Prometheus, Grafana) must be on a stable
+#         AWS-managed node that is never disrupted by Karpenter.
+#
+# All monitoring components now use:
+#   nodeSelector: node-group: platform
+#   toleration: dedicated=platform:NoSchedule
+#
+# To remove this NodePool from the cluster if it still exists:
+#   kubectl delete nodepool monitoring
+#   kubectl drain <t3a.small-node> --ignore-daemonsets --delete-emptydir-data
+#   # Karpenter will then terminate the node automatically
+# =============================================================================

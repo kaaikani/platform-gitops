@@ -1,0 +1,78 @@
+# =============================================================================
+# Karpenter EC2NodeClass - TEST Environment
+# =============================================================================
+# Purpose: EC2 node configuration for test environment
+# Environment: TEST
+# =============================================================================
+
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default-test
+spec:
+  # IAM Role for Karpenter nodes — must match the node group IAM role
+  role: "EKSNodeRole"
+
+  # AMI Selection - Use latest Amazon Linux 2023 for EKS
+  amiSelectorTerms:
+    - alias: al2023@latest
+
+  # Subnet Discovery — subnets tagged with karpenter.sh/discovery=vendure-test
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "vendure-test"
+
+  # Security Group Discovery — cluster SG tagged with karpenter.sh/discovery=vendure-test
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "vendure-test"
+
+  # Enable public IP for nodes (required for public subnet setup)
+  associatePublicIPAddress: true
+
+  # EBS Volume Configuration (MINIMAL for test)
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 20Gi  # Smaller for test
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        encrypted: true
+        deleteOnTermination: true
+
+  # Instance Tags
+  tags:
+    Name: vendure-test-app-karpenter
+    Environment: test
+    ManagedBy: karpenter
+    Cluster: vendure-test
+    Project: vendure-saas
+    CostCenter: test
+
+  # Custom userData - Override kubelet max-pods for VPC CNI prefix delegation
+  # Without this, c5a.large defaults to 29 pods (ENI-based limit)
+  # With prefix delegation enabled, nodes can handle 110 pods
+  userData: |
+    MIME-Version: 1.0
+    Content-Type: multipart/mixed; boundary="KARPENTER"
+
+    --KARPENTER
+    Content-Type: application/node.eks.aws
+
+    ---
+    apiVersion: node.eks.aws/v1alpha1
+    kind: NodeConfig
+    spec:
+      kubelet:
+        config:
+          maxPods: 110
+    --KARPENTER--
+
+  # IMDSv2 (Instance Metadata Service) - Security best practice
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
+

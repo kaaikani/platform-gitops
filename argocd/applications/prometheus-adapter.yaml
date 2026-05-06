@@ -1,0 +1,54 @@
+# =============================================================================
+# ArgoCD Application - Prometheus Adapter
+# =============================================================================
+# Exposes Prometheus metrics as Kubernetes custom metrics for HPA scaling
+# Uses multi-source: Helm chart from prometheus-community + values from Git
+# Requires ArgoCD 2.6+
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-adapter
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: monitoring
+    component: prometheus-adapter
+spec:
+  project: default
+
+  # Multi-source: Helm chart from external repo + values from Git
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: prometheus-adapter
+      targetRevision: 4.11.0
+      helm:
+        releaseName: prometheus-adapter
+        valueFiles:
+          - $values/environments/production/prometheus-adapter-values.yaml
+    - repoURL: https://github.com/kaaikani/platform-gitops.git
+      targetRevision: master
+      ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

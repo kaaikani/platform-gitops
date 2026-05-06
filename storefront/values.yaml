@@ -1,0 +1,151 @@
+# =============================================================================
+# STOREFRONT HELM CHART - DEFAULT VALUES
+# =============================================================================
+# Vendure Remix Storefront
+# Override these values for environment-specific deployments
+# =============================================================================
+
+global:
+  namespace: storefront-production
+  environment: production
+  # ECR registry
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+
+# =============================================================================
+# NAMESPACE CONFIGURATION
+# =============================================================================
+namespace:
+  create: false
+  name: storefront-production
+  podSecurity:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+
+# =============================================================================
+# STOREFRONT APPLICATION
+# =============================================================================
+storefront:
+  enabled: true
+  replicaCount: 1
+
+  # Blue/Green deployment via Argo Rollouts
+  blueGreen:
+    enabled: false
+    autoPromotionEnabled: true
+    autoPromotionSeconds: 30
+    scaleDownDelaySeconds: 30
+    previewReplicaCount: 1
+
+  image:
+    repository: kaaikanistore
+    tag: "v0.4.3"
+    pullPolicy: Always
+
+  # Resource sizing for Remix SSR (Node.js)
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "150m"
+    limits:
+      memory: "768Mi"
+      cpu: "500m"
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8002
+
+  # Application environment variables (non-sensitive)
+  env:
+    NODE_ENV: production
+    PORT: "8002"
+    VENDURE_API_URL: "https://kaaikani.co.in/shop-api"
+    HYGRAPH_ENDPOINT: "https://ap-south-1.cdn.hygraph.com/content/cm5c7pe3p012407uvvb6u1yln/master"
+
+  # Secrets configuration
+  secrets:
+    create: false
+    existingSecret: "storefront-secrets"
+
+  # Pod annotations
+  podAnnotations:
+    reloader.stakater.com/auto: "true"
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: false
+
+  # Graceful shutdown
+  terminationGracePeriodSeconds: 30
+  enableGracefulShutdown: true
+
+  # DNS configuration
+  dnsPolicy: ClusterFirst
+
+  # Health probes
+  livenessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  startupProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+  # Autoscaling
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 75
+
+  # Pod Disruption Budget
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 1
+
+  # Node scheduling
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+
+# =============================================================================
+# INGRESS CONFIGURATION (AWS ALB)
+# =============================================================================
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}
+  hosts: []
+
+# =============================================================================
+# NETWORK POLICIES
+# =============================================================================
+networkPolicies:
+  enabled: false
+
+# =============================================================================
+# PRIORITY CLASS
+# =============================================================================
+priorityClassName: ""

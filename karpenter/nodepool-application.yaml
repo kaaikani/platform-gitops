@@ -1,0 +1,76 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: application
+spec:
+  # Node Template
+  template:
+    metadata:
+      labels:
+        node-type: on-demand
+        workload: vendure
+        cost-tier: budget
+        node-group: vendure
+    spec:
+      # Instance Requirements
+      requirements:
+        # Architecture
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        # Operating System
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        # Capacity Type - ON-DEMAND only for Vendure reliability
+        # Changed from spot to on-demand to prevent service disruptions
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+        # c5a.large: 2 vCPU / 4GB — compute-optimized AMD (2nd gen), consistent CPU (no bursting)
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["c5a"]
+
+        # large only — each pod gets a dedicated compute-class node
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["large"]
+
+        # Instance Generation - t3, m5, c5 or newer
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["2"]
+
+        # Pin to ap-south-1a — same AZ as RDS (vendure-prod-db)
+        # Eliminates cross-AZ latency on every DB query (+1-3ms per call)
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["ap-south-1a"]
+
+      # Reference to EC2NodeClass
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+
+      # Node expiry - Replace nodes every 30 days for security patches
+      expireAfter: 720h
+
+  # Resource Limits for this NodePool
+  limits:
+    cpu: 4          # Max 2 c5a.large nodes — baseline 1 node, 2nd spins up during deploys/spikes
+    memory: 8Gi     # Max 8GB RAM total
+
+  # Disruption Settings
+  disruption:
+    # Consolidate when underutilized or empty
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    # Wait 5 minutes before consolidating — prevents create/delete loop
+    consolidateAfter: 5m
+
+  # Priority weight (higher = preferred)
+  weight: 100

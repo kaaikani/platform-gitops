@@ -1,0 +1,60 @@
+# =============================================================================
+# ARGO ROLLOUTS - CANARY / PROGRESSIVE DELIVERY
+# =============================================================================
+# This file contains ONLY the Argo Rollouts controller Helm values.
+# The Vendure Rollout, AnalysisTemplate, and Services are in a separate file:
+#   helm/environments/production/vendure-rollout.yaml
+#
+# Installation:
+#   helm repo add argo https://argoproj.github.io/argo-helm
+#   helm repo update
+#   helm install argo-rollouts argo/argo-rollouts \
+#     -n argo-rollouts --create-namespace \
+#     -f helm/environments/production/argo-rollouts-values.yaml
+#
+# Dashboard:
+#   kubectl argo rollouts dashboard -n argo-rollouts
+#   # Open http://localhost:3100
+#
+# Migration from Deployment to Rollout:
+#   1. Install Argo Rollouts controller (above)
+#   2. Apply vendure-rollout.yaml: kubectl apply -f vendure-rollout.yaml
+#   3. Scale down the Helm Deployment: kubectl scale deploy vendure-production-vendure-stack-vendure --replicas=0 -n vendure-production
+#   4. Monitor: kubectl argo rollouts get rollout vendure -n vendure-production
+# =============================================================================
+
+# Controller configuration
+controller:
+  # Single replica is sufficient for clusters with < 50 rollouts (standard practice)
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # Schedule on app nodes (on-demand, no taints)
+  nodeSelector:
+    node-group: app
+
+  tolerations: []
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: prometheus-stack
+
+# Dashboard
+dashboard:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

@@ -1,0 +1,70 @@
+# =============================================================================
+# KYVERNO PRODUCTION VALUES
+# =============================================================================
+# Chart: kyverno v3.7.0 (app v1.17.0)
+# Repo: https://kyverno.github.io/kyverno/
+#
+# Install/Upgrade:
+#   helm upgrade --install kyverno kyverno/kyverno -n kyverno \
+#     -f helm/environments/production/kyverno-values.yaml --version 3.7.0
+#
+# Key setting: forceFailurePolicyIgnore prevents Kyverno from blocking ALL
+# cluster operations when it's temporarily down (node drain, OOM, restart).
+# =============================================================================
+
+# Force all webhook failurePolicy to Ignore
+# Without this, if Kyverno crashes, the entire cluster freezes —
+# no pods, deployments, or updates can be created until Kyverno recovers
+features:
+  forceFailurePolicyIgnore:
+    enabled: true
+
+# Admission controller (main webhook)
+admissionController:
+  replicas: 1
+  nodeSelector:
+    environment: test
+  container:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 384Mi
+
+# Background controller
+backgroundController:
+  nodeSelector:
+    environment: test
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+# Cleanup controller
+cleanupController:
+  nodeSelector:
+    environment: test
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+# Reports controller
+reportsController:
+  nodeSelector:
+    environment: test
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+# Clean up webhooks when Kyverno is uninstalled
+webhooksCleanup:
+  enabled: true

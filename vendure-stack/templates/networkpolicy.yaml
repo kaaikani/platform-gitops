@@ -1,0 +1,260 @@
+{{- if .Values.networkPolicies.enabled }}
+# =============================================================================
+# VENDURE NETWORK POLICY - SECURE ALLOW RULES
+# =============================================================================
+# This policy allows specific traffic TO Vendure pods, overriding the default-deny policy.
+# Security: Only allows traffic from trusted sources (ALB, Prometheus)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-vendure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.vendure.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "vendure-stack.vendure.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from AWS ALB and same-namespace pods
+    # ALB traffic comes from nodes, and Kubernetes services route through same namespace
+    # Using empty podSelector allows traffic from any pod in same namespace
+    # This is necessary for ALB to work, but more secure than allowing all namespaces
+    - from:
+        - podSelector: {}  # Same namespace, any pod (for ALB traffic via service)
+      ports:
+        - protocol: TCP
+          port: {{ .Values.vendure.service.ports.server.port }}
+        - protocol: TCP
+          port: {{ .Values.vendure.service.ports.admin.port }}
+    # Allow traffic from Prometheus for metrics scraping
+    # Try monitoring namespace first (most common)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.vendure.service.ports.server.port }}
+    # Alternative Prometheus label (for different deployments)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.vendure.service.ports.server.port }}
+    # Allow from kube-system namespace (for system components like ALB controller)
+    # Note: This is more permissive but necessary for ALB to route traffic
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: {{ .Values.vendure.service.ports.server.port }}
+        - protocol: TCP
+          port: {{ .Values.vendure.service.ports.admin.port }}
+    # Allow traffic from storefront namespaces (SSR → Vendure shop-api)
+    # kubernetes.io/metadata.name is auto-set on all namespaces (K8s 1.21+)
+    {{- range .Values.networkPolicies.allowedNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.vendure.service.ports.server.port }}
+    {{- end }}
+  egress:
+    # Allow DNS - Multiple DNS service label options for CNI compatibility
+    # CoreDNS standard label
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # CoreDNS alternative label (for newer versions)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # EKS CoreDNS label
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              eks.amazonaws.com/component: coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow traffic to MySQL (in-cluster)
+    {{- if .Values.mysql.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mysql
+      ports:
+        - protocol: TCP
+          port: 3306
+    {{- end }}
+    # Allow traffic to external MySQL (RDS, etc.)
+    # Note: Using empty selector allows external endpoints, but this is necessary for RDS
+    # In production, consider restricting to specific IP ranges if known
+    {{- if or (not .Values.mysql.enabled) .Values.externalDatabase }}
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 3306
+    {{- end }}
+    # Allow traffic to Redis (in-cluster)
+    {{- if .Values.redis.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    {{- end }}
+    # Allow traffic to external Redis (ElastiCache, Redis Cloud, etc.)
+    # Note: Using empty selector allows external endpoints, necessary for managed Redis
+    {{- if or (not .Values.redis.enabled) .Values.externalRedis }}
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 6379
+    {{- end }}
+    # Allow HTTPS for AWS services (S3, Secrets Manager, CloudWatch, etc.)
+    # This is necessary for application to function (S3 uploads, secret retrieval)
+    # Consider restricting to AWS IP ranges in future for better security
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow HTTP for health checks and external services (if needed)
+    # Note: Most services use HTTPS, but some health checks may use HTTP
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+    # Allow SMTP for email sending (common ports)
+    # Restrict to specific SMTP server IPs if known for better security
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 25
+        - protocol: TCP
+          port: 587
+        - protocol: TCP
+          port: 465
+    # Allow traffic to Prometheus (if enabled, from monitoring namespace)
+    {{- if .Values.prometheus.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    {{- end }}
+---
+# =============================================================================
+# MYSQL NETWORK POLICY (if in-cluster MySQL is enabled)
+# =============================================================================
+# Only allows Vendure pods to connect to MySQL
+# Security: Blocks all other pods from accessing MySQL
+# =============================================================================
+{{- if .Values.mysql.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-mysql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only allow traffic from Vendure pods in the same namespace
+    # Using podSelector without namespaceSelector means same namespace
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "vendure-stack.vendure.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 3306
+{{- end }}
+---
+# =============================================================================
+# REDIS NETWORK POLICY (if in-cluster Redis is enabled)
+# =============================================================================
+# Only allows Vendure pods to connect to Redis
+# Security: Blocks all other pods from accessing Redis
+# =============================================================================
+{{- if .Values.redis.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vendure-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only allow traffic from Vendure pods in the same namespace
+    # Using podSelector without namespaceSelector means same namespace
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "vendure-stack.vendure.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 6379
+{{- end }}
+{{- end }}

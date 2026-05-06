@@ -1,0 +1,42 @@
+{{- if and .Values.storefront.enabled .Values.storefront.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "storefront.fullname" . }}
+  labels:
+    {{- include "storefront.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+spec:
+  scaleTargetRef:
+    {{- if .Values.storefront.blueGreen.enabled }}
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    {{- else }}
+    apiVersion: apps/v1
+    kind: Deployment
+    {{- end }}
+    name: {{ include "storefront.fullname" . }}
+  minReplicas: {{ .Values.storefront.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.storefront.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.storefront.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.storefront.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.storefront.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.storefront.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  {{- if .Values.storefront.autoscaling.behavior }}
+  behavior:
+    {{- toYaml .Values.storefront.autoscaling.behavior | nindent 4 }}
+  {{- end }}
+{{- end }}

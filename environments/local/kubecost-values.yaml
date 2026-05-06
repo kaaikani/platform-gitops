@@ -1,0 +1,72 @@
+# =============================================================================
+# KUBECOST - LOCAL CONFIGURATION
+# =============================================================================
+# Cost monitoring for local Kubernetes cluster
+# =============================================================================
+
+# Prometheus configuration (use existing Prometheus Stack)
+prometheus:
+  server:
+    enabled: false  # Use existing Prometheus Stack
+  kube-state-metrics:
+    enabled: false  # Use existing from Prometheus Stack
+  nodeExporter:
+    enabled: false  # Use existing from Prometheus Stack
+  serviceAccounts:
+    server:
+      create: false
+    kube-state-metrics:
+      create: false
+    nodeExporter:
+      create: false
+  # Use external Prometheus (from Prometheus Stack)
+  external:
+    enabled: true
+    url: "http://prometheus-stack-kube-prom-prometheus.monitoring.svc:9090"
+
+# Kubecost configuration
+kubecostProductConfigs:
+  clusterName: "local-cluster"
+  productAnalytics: false  # Disable analytics for local
+
+# UI configuration
+service:
+  type: NodePort
+  port: 9090
+  nodePort: 30090
+
+# Resources (minimal for local)
+kubecostFrontend:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+kubecostCostModel:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Disable persistent storage for local
+persistentVolume:
+  enabled: false
+
+# =============================================================================
+# LOCAL TESTING NOTES
+# =============================================================================
+#
+# Access:
+#   kubectl port-forward -n kubecost svc/kubecost-cost-analyzer 9090:9090
+#   Open: http://localhost:9090
+#
+# Note: Kubecost requires Prometheus to be running first
+#
+# =============================================================================
+

@@ -1,0 +1,267 @@
+# Production values for kube-prometheus-stack
+# Deployed in separate 'monitoring' namespace
+#
+# Usage:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   kubectl create namespace monitoring
+#   helm install prometheus-stack prometheus-community/kube-prometheus-stack \
+#     -n monitoring -f values-production.yaml
+
+# =============================================================================
+# PROMETHEUS CONFIGURATION
+# =============================================================================
+prometheus:
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c"
+      alb.ingress.kubernetes.io/healthcheck-path: /-/healthy
+      alb.ingress.kubernetes.io/tags: Environment=production,Project=monitoring
+    hosts:
+      - prom.kaaikani.co.in
+    paths:
+      - /
+
+  prometheusSpec:
+    # Scrape ServiceMonitors from all namespaces (including vendure-production)
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Retention settings
+    retention: 30d
+    retentionSize: "50GB"
+
+    # Resources
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "500m"
+      limits:
+        memory: "4Gi"
+        cpu: "1000m"
+
+    # Storage
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+
+# =============================================================================
+# GRAFANA CONFIGURATION
+# =============================================================================
+grafana:
+  enabled: true
+
+  adminUser: admin
+  adminPassword: ""  # Set via --set grafana.adminPassword=<password>
+
+  # Persistence
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClassName: gp3
+
+  # Resources
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "200m"
+
+  # Service type (use LoadBalancer or Ingress for external access)
+  service:
+    type: ClusterIP
+
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c"
+      alb.ingress.kubernetes.io/healthcheck-path: /api/health
+      alb.ingress.kubernetes.io/tags: Environment=production,Project=monitoring
+    hosts:
+      - grafa.kaaikani.co.in
+    path: /
+
+  # Default dashboards
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: "Asia/Kolkata"
+
+  # Sidecar configuration for auto-provisioning dashboards from ConfigMaps
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      # Enable folder organization via grafana_folder annotation on ConfigMaps
+      folderAnnotation: grafana_folder
+      # Required: allow sidecar to create folders from annotations
+      provider:
+        foldersFromFilesStructure: false
+        allowUiUpdates: true
+      searchNamespace: monitoring
+
+  # Additional data sources (if needed)
+  additionalDataSources: []
+
+# =============================================================================
+# ALERTMANAGER CONFIGURATION
+# =============================================================================
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "100m"
+
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+  # Alert configuration (configure your notification channels)
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'null'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'null'  # Replace with your receiver (slack, email, etc.)
+    receivers:
+      - name: 'null'
+      # Add your notification receivers here
+      # - name: 'slack'
+      #   slack_configs:
+      #     - api_url: 'https://hooks.slack.com/services/...'
+      #       channel: '#alerts'
+
+# =============================================================================
+# NODE EXPORTER
+# =============================================================================
+nodeExporter:
+  enabled: true
+
+# =============================================================================
+# KUBE STATE METRICS
+# =============================================================================
+kubeStateMetrics:
+  enabled: true
+
+# =============================================================================
+# PROMETHEUS OPERATOR
+# =============================================================================
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+# =============================================================================
+# ADDITIONAL PROMETHEUS RULES (Vendure-specific alerts)
+# =============================================================================
+additionalPrometheusRulesMap:
+  vendure-rules:
+    groups:
+      - name: vendure.rules
+        rules:
+          - alert: VendureHighErrorRate
+            expr: rate(http_requests_total{namespace="vendure-production",status=~"5.."}[5m]) > 0.1
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High error rate on Vendure"
+              description: "Error rate is above 10% for 5 minutes"
+
+          - alert: VendurePodNotReady
+            expr: kube_pod_status_ready{namespace="vendure-production",condition="true"} == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Vendure pod not ready"
+              description: "Pod {{ $labels.pod }} has been not ready for 5 minutes"
+
+          - alert: VendureHighMemoryUsage
+            expr: container_memory_usage_bytes{namespace="vendure-production"} / container_spec_memory_limit_bytes{namespace="vendure-production"} > 0.9
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Vendure high memory usage"
+              description: "Memory usage is above 90% for 5 minutes"
+
+          - alert: VendureHighCPUUsage
+            expr: rate(container_cpu_usage_seconds_total{namespace="vendure-production"}[5m]) > 0.9
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Vendure high CPU usage"
+              description: "CPU usage is above 90% for 5 minutes"
+
+# =============================================================================
+# DEPLOYMENT COMMANDS
+# =============================================================================
+#
+# Install:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   kubectl create namespace monitoring
+#   helm install prometheus-stack prometheus-community/kube-prometheus-stack \
+#     -n monitoring \
+#     -f values-production.yaml \
+#     --set grafana.adminPassword=<YOUR_GRAFANA_PASSWORD>
+#
+# Upgrade:
+#   helm upgrade prometheus-stack prometheus-community/kube-prometheus-stack \
+#     -n monitoring \
+#     -f values-production.yaml
+#
+# Access Grafana (port-forward):
+#   kubectl port-forward svc/prometheus-stack-grafana -n monitoring 3000:80
+#   Open: http://localhost:3000 (admin / <YOUR_GRAFANA_PASSWORD>)
+#
+# Access Prometheus (port-forward):
+#   kubectl port-forward svc/prometheus-stack-kube-prom-prometheus -n monitoring 9090:9090
+#   Open: http://localhost:9090
+#
+# =============================================================================

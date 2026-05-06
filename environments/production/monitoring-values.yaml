@@ -1,0 +1,783 @@
+# =============================================================================
+# MONITORING STACK - PRODUCTION ENVIRONMENT
+# =============================================================================
+# Environment: PRODUCTION (monitoring namespace)
+# Purpose: Reliable monitoring for production workloads
+#
+# Architecture:
+#   - All monitoring components on ON-DEMAND instance (always available)
+#   - Longer retention (30 days)
+#   - Higher resources for reliability
+#   - Persistent storage enabled
+#
+# CRITICAL: Monitoring MUST run on ON-DEMAND nodes
+#           If monitoring goes down, you can't see production issues!
+#
+# Usage:
+#   helm upgrade --install prometheus-stack prometheus-community/kube-prometheus-stack \
+#     -n monitoring \
+#     -f helm/environments/production/monitoring-values.yaml \
+#     --set grafana.adminPassword=<YOUR_SECURE_PASSWORD>
+#
+# Estimated Cost: ~$15/month (t3.small on-demand)
+# =============================================================================
+
+# =============================================================================
+# PROMETHEUS CONFIGURATION
+# =============================================================================
+prometheus:
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/group.name: vendure-shared
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c"
+      alb.ingress.kubernetes.io/healthcheck-path: /-/healthy
+      alb.ingress.kubernetes.io/tags: Environment=production
+    hosts:
+      - prom.kaaikani.co.in
+    paths:
+      - /
+
+  prometheusSpec:
+    # Scrape ServiceMonitors from all namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Production retention (30 days)
+    retention: 30d
+    retentionSize: "45GB"
+
+    # Faster evaluation for production
+    evaluationInterval: 15s
+    scrapeInterval: 15s
+
+    # Production resources
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "300m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+    # Persistent storage (CRITICAL for production)
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp2
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+          storageClassName: gp3
+
+    # Schedule on platform node (PVC bound to ap-south-1c EBS volume)
+    nodeSelector:
+      node-group: platform
+
+    tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "platform"
+        effect: "NoSchedule"
+
+    # Explicit affinity to prevent Helm chart from generating null podAntiAffinity
+    # (null value causes ArgoCD sync failure on Prometheus CRD validation)
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - prometheus
+              topologyKey: kubernetes.io/hostname
+
+    # Ensure Prometheus doesn't get evicted
+    priorityClassName: system-cluster-critical
+
+# =============================================================================
+# GRAFANA CONFIGURATION
+# =============================================================================
+grafana:
+  enabled: true
+
+  adminUser: admin
+  adminPassword: "Kk@Grafana!Pr0d#2026"  # Change this! Generated initial password
+
+  # Persistence
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: gp3
+
+  # Production resources
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  service:
+    type: ClusterIP
+
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/group.name: vendure-shared
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c"
+      alb.ingress.kubernetes.io/healthcheck-path: /api/health
+      alb.ingress.kubernetes.io/tags: Environment=production
+    hosts:
+      - grafa.kaaikani.co.in
+    path: /
+
+  # Disable default kube-prometheus-stack dashboards (kubecost, node-exporter-mixin, etc.)
+  # Custom dashboards are provisioned via dashboard-configmaps in helm/monitoring-stack/
+  defaultDashboardsEnabled: false
+  defaultDashboardsTimezone: "Asia/Kolkata"
+
+  # Loki datasource for log queries
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+
+  # Sidecar configuration
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+
+  # Schedule on platform node (PVC bound to ap-south-1c EBS volume)
+  nodeSelector:
+    node-group: platform
+
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "platform"
+      effect: "NoSchedule"
+
+  # Grafana configuration
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/"
+    security:
+      admin_password: "Kk@Grafana!Pr0d#2026"  # Must match grafana.adminPassword above
+      disable_brute_force_login_protection: true
+    analytics:
+      check_for_updates: false
+    log:
+      mode: console
+      level: info
+    alerting:
+      enabled: true
+
+# =============================================================================
+# ALERTMANAGER CONFIGURATION
+# =============================================================================
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+    # AlertManager runs on platform managed node group (stable, AWS-controlled)
+    # Requires VPC CNI prefix delegation enabled for sufficient pod count on t3a.large
+    nodeSelector:
+      node-group: platform
+
+    tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "platform"
+        effect: "NoSchedule"
+
+    # Mount Kubernetes Secrets at /etc/alertmanager/secrets/<name>/
+    # alertmanager-slack is created by ExternalSecret in monitoring namespace
+    # (pulls SLACK_WEBHOOK_URL from AWS secret vendure/prod/integrations)
+    secrets:
+      - alertmanager-slack
+
+  # ==========================================================================
+  # ALERTMANAGER CONFIG — Clean, readable Slack notifications
+  # ==========================================================================
+  # Channels:
+  #   #vendure-critical  → RED alerts, pages immediately (critical only)
+  #   #vendure-alerts    → YELLOW warnings, check during work hours
+  #   null               → Silenced noise (Watchdog, InfoInhibitor, etc.)
+  # ==========================================================================
+  config:
+    global:
+      resolve_timeout: 5m
+      slack_api_url_file: '/etc/alertmanager/secrets/alertmanager-slack/slack-webhook-url'
+
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'slack-warnings'
+      routes:
+        # ---- SILENCE noisy/useless alerts ----
+        - match_re:
+            alertname: 'Watchdog|InfoInhibitor|KubeVersionMismatch'
+          receiver: 'null'
+        # ---- SILENCE known EKS noise (not actionable) ----
+        - match_re:
+            alertname: 'CPUThrottlingHigh|KubeMemoryOvercommit|KubeCPUOvercommit|etcd.*'
+          receiver: 'null'
+        # ---- CRITICAL → immediate page ----
+        - match:
+            severity: critical
+          receiver: 'slack-critical'
+          group_wait: 10s
+          repeat_interval: 30m
+          continue: false
+        # ---- WARNING → work hours review ----
+        - match:
+            severity: warning
+          receiver: 'slack-warnings'
+          group_wait: 1m
+          repeat_interval: 6h
+          continue: false
+        # ---- ENDPOINT DOWN (blackbox) → critical ----
+        - match:
+            alertname: 'EndpointDown'
+          receiver: 'slack-critical'
+          group_wait: 10s
+          repeat_interval: 15m
+
+    receivers:
+      # Null receiver — silences noisy alerts
+      - name: 'null'
+
+      # CRITICAL — Red color, clear action required
+      - name: 'slack-critical'
+        slack_configs:
+          - channel: '#vendure-critical'
+            send_resolved: true
+            color: '{{ if eq .Status "firing" }}#FF0000{{ else }}#36a64f{{ end }}'
+            title: >-
+              {{ if eq .Status "firing" }}:rotating_light: CRITICAL ALERT{{ else }}:white_check_mark: RESOLVED{{ end }}
+            text: >-
+              {{ range .Alerts }}
+              *Alert:* `{{ .Labels.alertname }}`
+              *Namespace:* `{{ .Labels.namespace }}`
+              *Severity:* `{{ .Labels.severity }}`
+              *Since:* {{ .StartsAt.Format "02 Jan 15:04 IST" }}
+              *Details:* {{ .Annotations.description }}
+              *Summary:* {{ .Annotations.summary }}
+              ---
+              {{ end }}
+            fallback: '{{ .CommonLabels.alertname }} - {{ .CommonAnnotations.summary }}'
+            icon_emoji: ':fire:'
+            username: 'Vendure Alerts'
+
+      # WARNING — Yellow color, review during work hours
+      - name: 'slack-warnings'
+        slack_configs:
+          - channel: '#vendure-alerts'
+            send_resolved: true
+            color: '{{ if eq .Status "firing" }}#FFA500{{ else }}#36a64f{{ end }}'
+            title: >-
+              {{ if eq .Status "firing" }}:warning: WARNING{{ else }}:white_check_mark: RESOLVED{{ end }} — {{ .CommonLabels.alertname }}
+            text: >-
+              {{ range .Alerts }}
+              *Alert:* `{{ .Labels.alertname }}`
+              *Namespace:* `{{ .Labels.namespace }}`
+              *Details:* {{ .Annotations.description }}
+              {{ end }}
+            fallback: '{{ .CommonLabels.alertname }} - {{ .CommonAnnotations.summary }}'
+            icon_emoji: ':warning:'
+            username: 'Vendure Alerts'
+
+    # Inhibition rules — prevent duplicate alerts
+    inhibit_rules:
+      # If critical fires, suppress matching warning
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'namespace']
+      # If all pods down, suppress single pod down
+      - source_match:
+          alertname: 'VendureProductionAllPodsDown'
+        target_match:
+          alertname: 'VendureProductionPodDown'
+        equal: ['namespace']
+      # If node not ready, suppress pod alerts on that node
+      - source_match:
+          alertname: 'KubeNodeNotReady'
+        target_match_re:
+          alertname: 'KubePodNotReady|KubePodCrashLooping'
+        equal: ['node']
+
+# =============================================================================
+# NODE EXPORTER
+# =============================================================================
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "20m"
+    limits:
+      memory: "64Mi"
+      cpu: "100m"
+
+# =============================================================================
+# KUBE STATE METRICS
+# =============================================================================
+kubeStateMetrics:
+  enabled: true
+
+kube-state-metrics:
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "20m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+  # Runs on platform managed node group (stable, AWS-controlled)
+  # Requires VPC CNI prefix delegation enabled for sufficient pod count on t3a.large
+  nodeSelector:
+    node-group: platform
+
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "platform"
+      effect: "NoSchedule"
+
+# =============================================================================
+# PROMETHEUS OPERATOR
+# =============================================================================
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "300m"
+
+  # Runs on platform managed node group (stable, AWS-controlled)
+  # Requires VPC CNI prefix delegation enabled for sufficient pod count on t3a.large
+  nodeSelector:
+    node-group: platform
+
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "platform"
+      effect: "NoSchedule"
+
+# =============================================================================
+# COMPONENT TOGGLES
+# =============================================================================
+
+# Enable kubelet monitoring
+kubelet:
+  enabled: true
+
+# Disable components not accessible in EKS
+kubeApiServer:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
+coreDns:
+  enabled: true  # Enable for production
+
+# =============================================================================
+# PRODUCTION ALERTS
+# =============================================================================
+additionalPrometheusRulesMap:
+  vendure-production-rules:
+    groups:
+      - name: vendure.production.critical
+        rules:
+          # Application Completely Down
+          - alert: VendureProductionDown
+            expr: up{job=~".*vendure.*", namespace="vendure-production"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: Vendure PRODUCTION is DOWN"
+              description: "Vendure production has been down for 1 minute - IMMEDIATE ACTION REQUIRED"
+
+          # All Replicas Down
+          - alert: VendureProductionAllPodsDown
+            expr: |
+              count(kube_pod_status_ready{namespace="vendure-production",condition="true"} == 1) == 0
+            for: 30s
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: ALL Vendure pods are DOWN"
+              description: "No healthy Vendure pods in production - CUSTOMERS AFFECTED"
+
+          # OOM Risk
+          - alert: VendureProductionOOMRisk
+            expr: |
+              container_memory_usage_bytes{namespace="vendure-production",container="vendure"}
+              / container_spec_memory_limit_bytes{namespace="vendure-production",container="vendure"} > 0.9
+            for: 2m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: Vendure OOM Risk"
+              description: "Memory above 90% - pod may crash soon"
+
+          # High Error Rate
+          - alert: VendureProductionHighErrorRate
+            expr: |
+              sum(rate(http_requests_total{namespace="vendure-production",status=~"5.."}[5m]))
+              / sum(rate(http_requests_total{namespace="vendure-production"}[5m])) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: High error rate in production"
+              description: "Error rate above 5% - customers experiencing issues"
+
+      - name: vendure.production.warning
+        rules:
+          # Single Pod Down (but others running)
+          - alert: VendureProductionPodDown
+            expr: |
+              count(kube_pod_status_ready{namespace="vendure-production",condition="true"} == 1) < 2
+            for: 5m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Vendure production pod count low"
+              description: "Less than 2 pods running - reduced capacity"
+
+          # High Memory
+          - alert: VendureProductionHighMemory
+            expr: |
+              container_memory_usage_bytes{namespace="vendure-production",container="vendure"}
+              / container_spec_memory_limit_bytes{namespace="vendure-production",container="vendure"} > 0.8
+            for: 10m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Vendure high memory usage"
+              description: "Memory above 80% for 10 minutes"
+
+          # High Latency
+          - alert: VendureProductionHighLatency
+            expr: |
+              histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{namespace="vendure-production"}[5m])) > 2
+            for: 5m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "High latency in production"
+              description: "95th percentile latency above 2 seconds"
+
+          # Pod Restarts
+          - alert: VendureProductionPodRestarting
+            expr: increase(kube_pod_container_status_restarts_total{namespace="vendure-production"}[1h]) > 2
+            for: 5m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Vendure pod restarting"
+              description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in 1 hour"
+
+      - name: endpoint.uptime
+        rules:
+          # Endpoint Down (Blackbox Exporter)
+          - alert: EndpointDown
+            expr: probe_success == 0
+            for: 2m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: Endpoint {{ $labels.instance }} is DOWN"
+              description: "{{ $labels.instance }} has been unreachable for 2 minutes — customers affected"
+
+          # Endpoint Slow (>3s response)
+          - alert: EndpointSlow
+            expr: probe_duration_seconds > 3
+            for: 5m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Endpoint {{ $labels.instance }} is SLOW"
+              description: "{{ $labels.instance }} response time is {{ $value | humanizeDuration }} (>3s)"
+
+          # SSL Certificate Expiring (30 days)
+          - alert: SSLCertExpiringSoon
+            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+            for: 1h
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "SSL certificate expiring soon for {{ $labels.instance }}"
+              description: "Certificate expires in {{ $value | humanizeDuration }}"
+
+      - name: infrastructure.production
+        rules:
+          # Spot Node Termination Warning
+          - alert: SpotNodeTerminationWarning
+            expr: |
+              kube_node_status_condition{condition="Ready",status="true"} == 0
+              and on(node) kube_node_labels{label_node_type="spot"}
+            for: 30s
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Spot node may be terminating"
+              description: "Node {{ $labels.node }} not ready - checking for spot termination"
+
+          # Monitoring Node Issues
+          - alert: MonitoringNodeNotReady
+            expr: |
+              kube_node_status_condition{condition="Ready",status="true"} == 0
+              and on(node) kube_node_labels{label_node_type="system"}
+            for: 1m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: Monitoring node not ready"
+              description: "System node {{ $labels.node }} is not ready - monitoring at risk"
+
+          # Persistent Volume Issues
+          - alert: PersistentVolumeFillingUp
+            expr: |
+              kubelet_volume_stats_available_bytes{namespace=~"monitoring|vendure-production"}
+              / kubelet_volume_stats_capacity_bytes{namespace=~"monitoring|vendure-production"} < 0.1
+            for: 5m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Persistent volume filling up"
+              description: "Volume {{ $labels.persistentvolumeclaim }} has less than 10% space"
+
+          # HPA at Max Replicas
+          - alert: HPAAtMaxReplicas
+            expr: |
+              kube_horizontalpodautoscaler_status_current_replicas
+              == kube_horizontalpodautoscaler_spec_max_replicas
+            for: 15m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "HPA {{ $labels.horizontalpodautoscaler }} is at max replicas"
+              description: "HPA {{ $labels.horizontalpodautoscaler }} in namespace {{ $labels.namespace }} has been at max replicas ({{ $value }}) for 15 minutes — cannot scale further"
+
+          # Karpenter Provisioning Failures
+          - alert: KarpenterProvisioningFailure
+            expr: |
+              increase(karpenter_provisioner_scheduling_simulation_duration_seconds_count{result="error"}[10m]) > 0
+              or increase(karpenter_nodeclaims_disrupted{reason="empty"}[10m]) > 3
+            for: 5m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "Karpenter failing to provision nodes"
+              description: "Karpenter has encountered provisioning errors in the last 10 minutes — pods may be pending"
+
+          # CPU Credit Balance Low (T-series instances)
+          - alert: CPUCreditBalanceLow
+            expr: |
+              avg_over_time(node_cpu_credits_balance[5m]) < 20
+            for: 10m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "CPU credit balance low on {{ $labels.instance }}"
+              description: "T-series instance {{ $labels.instance }} has only {{ $value }} CPU credits remaining — performance throttling imminent"
+
+          # DB Connection Pool Exhaustion
+          - alert: DBConnectionPoolExhaustion
+            expr: |
+              mysql_global_status_threads_connected
+              / mysql_global_variables_max_connections > 0.8
+            for: 5m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "Database connection pool near exhaustion"
+              description: "MySQL connections at {{ $value | humanizePercentage }} of max — new connections may be refused"
+
+# =============================================================================
+# RESOURCE SUMMARY (PRODUCTION)
+# =============================================================================
+# Component          | CPU Request | Memory Request | Storage
+# -------------------|-------------|----------------|--------
+# Prometheus         | 300m        | 1Gi            | 50Gi
+# Grafana            | 100m        | 256Mi          | 10Gi
+# AlertManager       | 50m         | 128Mi          | 5Gi
+# Node Exporter      | 20m         | 32Mi           | -
+# Kube State Metrics | 20m         | 64Mi           | -
+# Prometheus Operator| 100m        | 128Mi          | -
+# -------------------|-------------|----------------|--------
+# TOTAL              | ~590m       | ~1.6Gi         | 65Gi
+#
+# Prometheus + Grafana → platform node (PVCs in ap-south-1c)
+# AlertManager, Operator, kube-state-metrics → app nodes
+# =============================================================================
+
+# =============================================================================
+# PROMETHEUS SELF-MONITORING ALERTS
+# =============================================================================
+  prometheus-self-monitoring:
+    groups:
+      - name: prometheus.self
+        rules:
+          - alert: PrometheusStorageFillingUp
+            expr: |
+              (prometheus_tsdb_storage_blocks_bytes / (50 * 1024 * 1024 * 1024)) > 0.8
+            for: 15m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Prometheus storage above 80%"
+              description: "Prometheus TSDB is using {{ $value | humanizePercentage }} of allocated 50Gi storage"
+
+          - alert: PrometheusTSDBCompactionsFailing
+            expr: increase(prometheus_tsdb_compactions_failed_total[3h]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Prometheus TSDB compactions failing"
+              description: "TSDB compactions are failing — storage may fill up faster than expected"
+
+          - alert: PrometheusRuleEvaluationFailures
+            expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+            for: 10m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Prometheus rule evaluation failures"
+              description: "Some alerting/recording rules are failing to evaluate"
+
+  vendure-worker-alerts:
+    groups:
+      - name: vendure.worker
+        rules:
+          - alert: VendureWorkerDown
+            expr: |
+              kube_deployment_status_replicas_available{
+                namespace="vendure-production",
+                deployment=~".*worker.*"
+              } == 0
+            for: 2m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: Vendure worker is DOWN"
+              description: "Vendure worker has 0 available replicas — background jobs (emails, webhooks, search indexing) are not processing"
+
+          - alert: VendureWorkerCrashLooping
+            expr: |
+              increase(kube_pod_container_status_restarts_total{
+                namespace="vendure-production",
+                pod=~".*worker.*"
+              }[30m]) > 3
+            for: 5m
+            labels:
+              severity: critical
+              environment: production
+            annotations:
+              summary: "CRITICAL: Vendure worker is crash-looping"
+              description: "Worker pod {{ $labels.pod }} has restarted {{ $value | humanize }} times in 30 minutes"
+
+          - alert: VendureWorkerPending
+            expr: |
+              kube_pod_status_phase{
+                namespace="vendure-production",
+                pod=~".*worker.*",
+                phase="Pending"
+              } == 1
+            for: 5m
+            labels:
+              severity: warning
+              environment: production
+            annotations:
+              summary: "Vendure worker pod stuck Pending"
+              description: "Worker pod {{ $labels.pod }} has been Pending for 5 minutes — possible node scheduling issue"

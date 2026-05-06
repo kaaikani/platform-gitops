@@ -1,0 +1,217 @@
+# Cost-Optimized Production Values for vendure-stack
+# Target Budget: ~$4/day (~$120/month)
+#
+# Key Optimizations:
+#   - Single replica by default (HPA scales to 2 under load)
+#   - Reduced resource requests/limits
+#   - Spot instance tolerations
+#   - Aggressive resource efficiency
+#
+# Usage:
+#   helm upgrade vendure ./vendure-stack -f values-production-cost-optimized.yaml -n vendure-production
+
+global:
+  namespace: vendure-production
+  environment: production
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+
+vendure:
+  enabled: true
+  # Start with 1 replica - HPA will scale if needed
+  replicaCount: 1
+
+  image:
+    repository: vendure-test
+    tag: "v1.0.0"  # Use specific version tags in production
+    pullPolicy: Always
+
+  # Optimized resources for t3a.medium (4GB RAM total)
+  # Reserve ~1.5GB for system + monitoring, ~2.5GB for Vendure
+  resources:
+    requests:
+      memory: "384Mi"
+      cpu: "200m"
+    limits:
+      memory: "768Mi"
+      cpu: "800m"
+
+  service:
+    type: ClusterIP
+    ports:
+      server:
+        port: 80
+      admin:
+        port: 3002
+
+  env:
+    NODE_ENV: production
+    APP_ENV: production
+    SUPERADMIN_USERNAME: superadmin
+    # Node.js memory optimization
+    NODE_OPTIONS: "--max-old-space-size=512"
+
+  podAnnotations: {}
+
+  # Faster startup for cost efficiency (less idle time)
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 90
+    periodSeconds: 20
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 45
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Autoscaling: 1 replica default, scale to 2 ONLY under high load
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 2
+    # Higher thresholds = less aggressive scaling = cost savings
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 85
+    # Scale down quickly to save costs
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 120  # 2 minutes before scale down
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+      scaleUp:
+        stabilizationWindowSeconds: 60   # 1 minute before scale up
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 30
+
+  # Disable PDB for single replica (allows node draining)
+  podDisruptionBudget:
+    enabled: false
+
+  # Spot instance tolerations
+  tolerations:
+    - key: "spot"
+      operator: "Equal"
+      value: "true"
+      effect: "PreferNoSchedule"
+
+  # Node selector for spot instances
+  nodeSelector:
+    node-type: spot
+
+  # Affinity for spot nodes
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-type
+                operator: In
+                values:
+                  - spot
+
+# =============================================================================
+# DATABASE CONFIGURATION (External - No cost here)
+# =============================================================================
+
+mysql:
+  enabled: false
+
+externalDatabase:
+  enabled: true
+  host: "test-5.cbq8i48yyklk.ap-south-1.rds.amazonaws.com"
+  port: 3306
+  database: wow_vendure
+  username: admin
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "DB_PASSWORD"
+
+# =============================================================================
+# REDIS CONFIGURATION (External - No cost here)
+# =============================================================================
+
+redis:
+  enabled: false
+
+externalRedis:
+  enabled: true
+  host: "redis-17207.crce179.ap-south-1-1.ec2.redns.redis-cloud.com"
+  port: 17207
+  username: "default"
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "REDIS_PASSWORD"
+
+# =============================================================================
+# MONITORING CONFIGURATION (Lightweight)
+# =============================================================================
+
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false
+
+# ServiceMonitor for external Prometheus
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  interval: 60s  # Less frequent scraping = less resource usage
+  scrapeTimeout: 15s
+  labels:
+    release: prometheus-stack
+
+# Minimal alerting rules
+prometheusRule:
+  enabled: true
+  namespace: monitoring
+  labels:
+    release: prometheus-stack
+  rules:
+    # Critical alerts only for cost-optimized setup
+    - alert: VendurePodDown
+      expr: up{job="vendure"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Vendure pod is down"
+        description: "Vendure application is not responding"
+    - alert: VendureHighMemoryUsage
+      expr: container_memory_usage_bytes{namespace="vendure-production"} / container_spec_memory_limit_bytes{namespace="vendure-production"} > 0.95
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Vendure critical memory usage"
+        description: "Memory usage above 95% - may cause OOM"
+
+# =============================================================================
+# INGRESS CONFIGURATION
+# =============================================================================
+
+ingress:
+  enabled: false  # Using unified-ingress.yaml
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+
+networkPolicies:
+  enabled: true
+
+secrets:
+  create: false
+  existingSecret: "vendure-secrets"
+
+serviceAccount:
+  create: true
+  annotations: {}

@@ -1,0 +1,284 @@
+# =============================================================================
+# SLO / ERROR BUDGET - PROMETHEUS RULES
+# =============================================================================
+# Defines Service Level Objectives and burn-rate alerts for Vendure production
+#
+# SLO Targets:
+#   - Availability: 99.9% (43.8 min downtime/month)
+#   - Latency: 95% of requests < 500ms, 99% < 2s
+#   - Error Rate: < 0.1% 5xx errors
+#
+# Burn-Rate Alerting:
+#   - Fast burn (14.4x): 2% budget consumed in 1 hour → Page immediately
+#   - Slow burn (6x): 5% budget consumed in 6 hours → Page
+#   - Chronic burn (3x): 10% budget consumed in 3 days → Ticket
+#
+# Apply:
+#   kubectl apply -f slo-rules.yaml -n monitoring
+#
+# Reference: Google SRE Workbook - Alerting on SLOs
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vendure-slo-rules
+  namespace: monitoring
+  labels:
+    release: prometheus-stack
+    app.kubernetes.io/part-of: vendure-stack
+spec:
+  groups:
+    # =========================================================================
+    # SLI RECORDING RULES
+    # =========================================================================
+    # Pre-compute SLI values for efficient SLO evaluation
+    - name: vendure.sli.recording
+      interval: 30s
+      rules:
+        # Total requests (all statuses)
+        - record: vendure:http_requests:rate5m
+          expr: |
+            sum(rate(http_requests_total{namespace="vendure-production"}[5m]))
+
+        # Successful requests (non-5xx)
+        - record: vendure:http_requests_success:rate5m
+          expr: |
+            sum(rate(http_requests_total{namespace="vendure-production",status!~"5.."}[5m]))
+
+        # Error requests (5xx only)
+        - record: vendure:http_requests_errors:rate5m
+          expr: |
+            sum(rate(http_requests_total{namespace="vendure-production",status=~"5.."}[5m]))
+
+        # Availability ratio (success / total)
+        - record: vendure:availability:ratio5m
+          expr: |
+            vendure:http_requests_success:rate5m
+            / vendure:http_requests:rate5m
+
+        # Error ratio
+        - record: vendure:error:ratio5m
+          expr: |
+            vendure:http_requests_errors:rate5m
+            / vendure:http_requests:rate5m
+
+        # Latency P50
+        - record: vendure:latency:p50_5m
+          expr: |
+            histogram_quantile(0.50,
+              sum(rate(http_request_duration_seconds_bucket{namespace="vendure-production"}[5m])) by (le)
+            )
+
+        # Latency P95
+        - record: vendure:latency:p95_5m
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{namespace="vendure-production"}[5m])) by (le)
+            )
+
+        # Latency P99
+        - record: vendure:latency:p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{namespace="vendure-production"}[5m])) by (le)
+            )
+
+        # Latency SLI: ratio of requests under 500ms
+        - record: vendure:latency_sli:ratio5m
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{namespace="vendure-production",le="0.5"}[5m]))
+            / sum(rate(http_request_duration_seconds_count{namespace="vendure-production"}[5m]))
+
+    # =========================================================================
+    # ERROR BUDGET RECORDING RULES
+    # =========================================================================
+    - name: vendure.error_budget.recording
+      interval: 1m
+      rules:
+        # Error budget remaining (30-day window)
+        # SLO target: 99.9% availability = 0.1% error budget
+        - record: vendure:error_budget:remaining
+          expr: |
+            1 - (
+              (1 - vendure:availability:ratio5m) / (1 - 0.999)
+            )
+
+        # Burn rate over 1 hour
+        - record: vendure:burn_rate:1h
+          expr: |
+            sum(rate(http_requests_total{namespace="vendure-production",status=~"5.."}[1h]))
+            / sum(rate(http_requests_total{namespace="vendure-production"}[1h]))
+            / (1 - 0.999)
+
+        # Burn rate over 6 hours
+        - record: vendure:burn_rate:6h
+          expr: |
+            sum(rate(http_requests_total{namespace="vendure-production",status=~"5.."}[6h]))
+            / sum(rate(http_requests_total{namespace="vendure-production"}[6h]))
+            / (1 - 0.999)
+
+        # Burn rate over 3 days
+        - record: vendure:burn_rate:3d
+          expr: |
+            sum(rate(http_requests_total{namespace="vendure-production",status=~"5.."}[3d]))
+            / sum(rate(http_requests_total{namespace="vendure-production"}[3d]))
+            / (1 - 0.999)
+
+    # =========================================================================
+    # SLO BURN-RATE ALERTS
+    # =========================================================================
+    - name: vendure.slo.alerts
+      rules:
+        # -----------------------------------------------------------------
+        # FAST BURN: 14.4x burn rate over 1 hour
+        # Consumes 2% of 30-day error budget in 1 hour
+        # Action: PAGE IMMEDIATELY
+        # -----------------------------------------------------------------
+        - alert: VendureSLOFastBurn
+          expr: |
+            vendure:burn_rate:1h > 14.4
+            and
+            vendure:burn_rate:6h > 6
+          for: 2m
+          labels:
+            severity: critical
+            environment: production
+            slo: availability
+            alert_type: burn_rate
+          annotations:
+            summary: "SLO VIOLATION: Vendure burning error budget 14.4x faster than allowed"
+            description: |
+              Error budget is being consumed at {{ $value | humanize }}x the sustainable rate.
+              At this rate, the entire 30-day error budget will be exhausted in {{ $value | humanize }} burn-rate-hours.
+              Burn rate value: {{ $value | humanize }}x
+            runbook_url: "https://github.com/your-org/vendure-k8s/wiki/slo-fast-burn"
+
+        # -----------------------------------------------------------------
+        # SLOW BURN: 6x burn rate over 6 hours
+        # Consumes 5% of 30-day error budget in 6 hours
+        # Action: PAGE
+        # -----------------------------------------------------------------
+        - alert: VendureSLOSlowBurn
+          expr: |
+            vendure:burn_rate:6h > 6
+            and
+            vendure:burn_rate:3d > 3
+          for: 15m
+          labels:
+            severity: critical
+            environment: production
+            slo: availability
+            alert_type: burn_rate
+          annotations:
+            summary: "SLO WARNING: Vendure burning error budget 6x faster than allowed"
+            description: |
+              Sustained error budget consumption at {{ $value | humanize }}x the sustainable rate over 6 hours.
+              Burn rate value: {{ $value | humanize }}x
+
+        # -----------------------------------------------------------------
+        # CHRONIC BURN: 3x burn rate over 3 days
+        # Consumes 10% of 30-day error budget in 3 days
+        # Action: TICKET (investigate but not urgent)
+        # -----------------------------------------------------------------
+        - alert: VendureSLOChronicBurn
+          expr: vendure:burn_rate:3d > 3
+          for: 1h
+          labels:
+            severity: warning
+            environment: production
+            slo: availability
+            alert_type: burn_rate
+          annotations:
+            summary: "SLO TREND: Vendure error budget being consumed at elevated rate"
+            description: |
+              Error budget consumption is {{ $value | humanize }}x the sustainable rate over 3 days.
+              This is a chronic issue that needs investigation within the sprint.
+
+        # -----------------------------------------------------------------
+        # LATENCY SLO: P95 > 500ms sustained
+        # -----------------------------------------------------------------
+        - alert: VendureLatencySLOBreach
+          expr: vendure:latency:p95_5m > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            environment: production
+            slo: latency
+          annotations:
+            summary: "Latency SLO breach: P95 above 500ms"
+            description: |
+              P95 latency is {{ $value | humanize }}s (target: 500ms).
+              Current P99 latency: {{ $value | humanize }}s (threshold: 1s)
+
+        # -----------------------------------------------------------------
+        # LATENCY SLO CRITICAL: P99 > 2s sustained
+        # -----------------------------------------------------------------
+        - alert: VendureLatencySLOCritical
+          expr: vendure:latency:p99_5m > 2
+          for: 5m
+          labels:
+            severity: critical
+            environment: production
+            slo: latency
+          annotations:
+            summary: "CRITICAL: Latency SLO breach - P99 above 2 seconds"
+            description: "P99 latency is {{ $value | humanize }}s. Customers are experiencing significant delays."
+
+        # -----------------------------------------------------------------
+        # ERROR BUDGET EXHAUSTED
+        # -----------------------------------------------------------------
+        - alert: VendureErrorBudgetExhausted
+          expr: vendure:error_budget:remaining < 0
+          for: 5m
+          labels:
+            severity: critical
+            environment: production
+            slo: availability
+          annotations:
+            summary: "CRITICAL: Vendure error budget EXHAUSTED"
+            description: |
+              The 30-day error budget for 99.9% availability has been fully consumed.
+              All changes should be frozen until error budget recovers.
+              Consider: rollback recent deployments, scale up, or investigate root cause.
+
+        # -----------------------------------------------------------------
+        # ERROR BUDGET LOW WARNING
+        # -----------------------------------------------------------------
+        - alert: VendureErrorBudgetLow
+          expr: vendure:error_budget:remaining < 0.25 and vendure:error_budget:remaining > 0
+          for: 30m
+          labels:
+            severity: warning
+            environment: production
+            slo: availability
+          annotations:
+            summary: "Error budget below 25% - exercise caution with deployments"
+            description: |
+              Only {{ $value | humanize }}% of the 30-day error budget remains.
+              Consider delaying risky deployments until budget recovers.
+
+---
+# =============================================================================
+# SLO DOCUMENTATION
+# =============================================================================
+#
+# Service Level Objectives for Vendure Production:
+#
+# | SLO            | Target  | Error Budget (30 days) | Measurement              |
+# |----------------|---------|------------------------|--------------------------|
+# | Availability   | 99.9%   | 43.2 minutes           | Non-5xx / Total requests |
+# | Latency (P95)  | < 500ms | N/A                    | histogram_quantile       |
+# | Latency (P99)  | < 2s    | N/A                    | histogram_quantile       |
+# | Error Rate     | < 0.1%  | Same as availability   | 5xx / Total requests     |
+#
+# Burn Rate Thresholds:
+#
+# | Burn Rate | Window   | Budget Consumed | Alert Severity | Action      |
+# |-----------|----------|-----------------|----------------|-------------|
+# | 14.4x     | 1 hour   | 2%              | Critical       | Page now    |
+# | 6x        | 6 hours  | 5%              | Critical       | Page        |
+# | 3x        | 3 days   | 10%             | Warning        | Ticket      |
+# | 1x        | 30 days  | 100%            | Info           | Sustainable |
+#
+# =============================================================================

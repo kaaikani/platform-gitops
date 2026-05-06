@@ -1,0 +1,468 @@
+{{- if .Values.vendure.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-vendure
+  labels:
+    {{- include "vendure-stack.vendure.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.vendure.replicaCount }}
+  {{- if .Values.vendure.strategy }}
+  strategy:
+    {{- toYaml .Values.vendure.strategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "vendure-stack.vendure.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        reloader.stakater.com/auto: "true"
+        {{- toYaml .Values.vendure.podAnnotations | nindent 8 }}
+      labels:
+        {{- include "vendure-stack.vendure.selectorLabels" . | nindent 8 }}
+        app: vendure
+    spec:
+      securityContext:
+        runAsNonRoot: {{ .Values.vendure.securityContext.runAsNonRoot | default true }}
+        runAsUser: {{ .Values.vendure.securityContext.runAsUser | default 1000 }}
+        fsGroup: {{ .Values.vendure.securityContext.fsGroup | default 1000 }}
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: {{ .Values.vendure.terminationGracePeriodSeconds | default 30 }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "vendure-stack.serviceAccountName" . }}
+      {{- end }}
+      # DNS Configuration for better service discovery
+      dnsPolicy: {{ .Values.vendure.dnsPolicy | default "ClusterFirst" }}
+      {{- if .Values.vendure.dnsConfig }}
+      dnsConfig:
+        {{- toYaml .Values.vendure.dnsConfig | nindent 8 }}
+      {{- else }}
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+          - name: edns0
+        searches:
+          - {{ .Release.Namespace }}.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+      {{- end }}
+      containers:
+        - name: vendure
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: {{ .Values.vendure.securityContext.readOnlyRootFilesystem | default false }}
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: {{ .Values.vendure.securityContext.runAsNonRoot | default true }}
+            runAsUser: {{ .Values.vendure.securityContext.runAsUser | default 1000 }}
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.vendure.image.repository }}:{{ .Values.vendure.image.tag }}"
+          imagePullPolicy: {{ .Values.vendure.image.pullPolicy }}
+          {{- if .Values.vendure.maxOldSpaceSize }}
+          # Override CMD to cap Node.js heap below the container memory limit.
+          # Without this, V8 sizes its heap from cgroup memory and can OOM-kill the pod.
+          command: ["node", "--max-old-space-size={{ .Values.vendure.maxOldSpaceSize }}", "dist/src/index.js"]
+          {{- end }}
+          ports:
+            - name: server
+              containerPort: {{ .Values.vendure.service.ports.server.port }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.vendure.service.ports.admin.port }}
+              protocol: TCP
+          env:
+            # Application environment
+            - name: NODE_ENV
+              value: {{ .Values.vendure.env.NODE_ENV | quote }}
+            - name: APP_ENV
+              value: {{ .Values.vendure.env.APP_ENV | quote }}
+            - name: PORT
+              value: {{ .Values.vendure.service.ports.server.port | quote }}
+
+            # Database configuration
+            # When existingSecret is set (ExternalSecret/AWS Secrets Manager), read ALL
+            # DB fields from the secret so AWS is the single source of truth.
+            - name: DB_HOST
+              {{- if and .Values.externalDatabase .Values.externalDatabase.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  key: DB_HOST
+              {{- else }}
+              value: {{ include "vendure-stack.mysql.host" . | quote }}
+              {{- end }}
+            - name: DB_PORT
+              {{- if and .Values.externalDatabase .Values.externalDatabase.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  key: DB_PORT
+              {{- else }}
+              value: {{ include "vendure-stack.mysql.port" . | quote }}
+              {{- end }}
+            - name: DB_NAME
+              {{- if and .Values.externalDatabase .Values.externalDatabase.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  key: DB_NAME
+              {{- else }}
+              value: {{ include "vendure-stack.mysql.database" . | quote }}
+              {{- end }}
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.externalDatabase.existingSecret }}{{ .Values.externalDatabase.existingSecret }}{{ else }}{{ include "vendure-stack.secretName" . }}{{ end }}
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.externalDatabase.existingSecret }}{{ .Values.externalDatabase.existingSecret }}{{ else }}{{ include "vendure-stack.secretName" . }}{{ end }}
+                  key: {{ if .Values.externalDatabase.existingSecretPasswordKey }}{{ .Values.externalDatabase.existingSecretPasswordKey }}{{ else }}DB_PASSWORD{{ end }}
+
+            # Redis configuration
+            # Same pattern: read from secret when existingSecret is configured
+            - name: REDIS_HOST
+              {{- if and .Values.externalRedis .Values.externalRedis.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalRedis.existingSecret }}
+                  key: REDIS_HOST
+              {{- else }}
+              value: {{ include "vendure-stack.redis.host" . | quote }}
+              {{- end }}
+            - name: REDIS_PORT
+              {{- if and .Values.externalRedis .Values.externalRedis.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalRedis.existingSecret }}
+                  key: REDIS_PORT
+              {{- else }}
+              value: {{ include "vendure-stack.redis.port" . | quote }}
+              {{- end }}
+            {{- if .Values.externalRedis }}
+            {{- if .Values.externalRedis.username }}
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: REDIS_USERNAME
+            {{- end }}
+            {{- if or .Values.externalRedis.password .Values.externalRedis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.externalRedis.existingSecret }}{{ .Values.externalRedis.existingSecret }}{{ else }}{{ include "vendure-stack.secretName" . }}{{ end }}
+                  key: {{ if .Values.externalRedis.existingSecretPasswordKey }}{{ .Values.externalRedis.existingSecretPasswordKey }}{{ else }}REDIS_PASSWORD{{ end }}
+            {{- end }}
+            {{- end }}
+
+            # Vendure app secrets
+            {{- $appSecretName := .Values.appSecrets.name | default "vendure-app-secrets" }}
+            - name: COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $appSecretName }}
+                  key: COOKIE_SECRET
+            - name: SUPERADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $appSecretName }}
+                  key: SUPERADMIN_USERNAME
+            - name: SUPERADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $appSecretName }}
+                  key: SUPERADMIN_PASSWORD
+            - name: TOTP_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $appSecretName }}
+                  key: TOTP_SALT
+            - name: RAZORPAY_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $appSecretName }}
+                  key: RAZORPAY_WEBHOOK_SECRET
+
+            # AWS S3 Configuration
+            # Note: When IRSA is enabled, AWS credentials are automatically provided via IAM role
+            # No need for AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY when using IRSA
+            {{- if and .Values.s3 .Values.s3.enabled }}
+            {{- if .Values.s3.useIRSA }}
+            # IRSA enabled - AWS SDK will automatically use IAM role from service account
+            - name: AWS_REGION
+              value: {{ .Values.s3.region | default "ap-south-1" | quote }}
+            {{- else }}
+            # Using access keys (NOT RECOMMENDED for production - use IRSA instead)
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.s3.existingSecret | default (include "vendure-stack.secretName" .) }}
+                  key: {{ .Values.s3.accessKeyIdKey | default "AWS_ACCESS_KEY_ID" }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.s3.existingSecret | default (include "vendure-stack.secretName" .) }}
+                  key: {{ .Values.s3.secretAccessKeyKey | default "AWS_SECRET_ACCESS_KEY" }}
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: AWS_REGION
+            {{- end }}
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: S3_BUCKET
+            {{- if .Values.s3.endpoint }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.s3.endpoint | quote }}
+            {{- else }}
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: S3_ENDPOINT
+            {{- end }}
+            {{- end }}
+
+            # South Mithai SMTP Configuration
+            - name: SOUTHMITHAI_SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SOUTHMITHAI_SMTP_HOST
+            - name: SOUTHMITHAI_SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SOUTHMITHAI_SMTP_PORT
+            - name: SOUTHMITHAI_SMTP_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SOUTHMITHAI_SMTP_SECURE
+            - name: SOUTHMITHAI_SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SOUTHMITHAI_SMTP_USERNAME
+            - name: SOUTHMITHAI_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SOUTHMITHAI_SMTP_PASSWORD
+            - name: SOUTHMITHAI_EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SOUTHMITHAI_EMAIL_FROM
+            - name: SOUTHMITHAI_SHOP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SOUTHMITHAI_SHOP_URL
+
+            # Swad Kerala SMTP Configuration
+            - name: SWADKERALA_SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SWADKERALA_SMTP_HOST
+            - name: SWADKERALA_SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SWADKERALA_SMTP_PORT
+            - name: SWADKERALA_SMTP_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SWADKERALA_SMTP_SECURE
+            - name: SWADKERALA_SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SWADKERALA_SMTP_USERNAME
+            - name: SWADKERALA_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SWADKERALA_SMTP_PASSWORD
+            - name: SWADKERALA_EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SWADKERALA_EMAIL_FROM
+            - name: SWADKERALA_SHOP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SWADKERALA_SHOP_URL
+
+            # Shipping Provider Credentials
+            - name: BLUEDART_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: BLUEDART_CLIENT_ID
+            - name: BLUEDART_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: BLUEDART_CLIENT_SECRET
+            - name: SHIPROCKET_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SHIPROCKET_EMAIL
+            - name: SHIPROCKET_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: SHIPROCKET_PASSWORD
+
+            # Google OAuth
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: GOOGLE_CLIENT_ID
+
+            # Apple OAuth Bundle IDs (plain env — not sensitive, public iOS identifiers)
+            {{- if .Values.vendure.env.APPLE_CLIENT_ID_SOUTHMITHAI }}
+            - name: APPLE_CLIENT_ID_SOUTHMITHAI
+              value: {{ .Values.vendure.env.APPLE_CLIENT_ID_SOUTHMITHAI | quote }}
+            {{- end }}
+            {{- if .Values.vendure.env.APPLE_CLIENT_ID_SWADKERALA }}
+            - name: APPLE_CLIENT_ID_SWADKERALA
+              value: {{ .Values.vendure.env.APPLE_CLIENT_ID_SWADKERALA | quote }}
+            {{- end }}
+            {{- if .Values.vendure.env.APPLE_CLIENT_ID_KAAIKANIDIRECT }}
+            - name: APPLE_CLIENT_ID_KAAIKANIDIRECT
+              value: {{ .Values.vendure.env.APPLE_CLIENT_ID_KAAIKANIDIRECT | quote }}
+            {{- end }}
+            {{- if .Values.vendure.env.APPLE_CLIENT_ID_DEFAULT }}
+            - name: APPLE_CLIENT_ID_DEFAULT
+              value: {{ .Values.vendure.env.APPLE_CLIENT_ID_DEFAULT | quote }}
+            {{- end }}
+
+          resources:
+            {{- toYaml .Values.vendure.resources | nindent 12 }}
+
+          {{- if .Values.vendure.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.vendure.livenessProbe.path }}
+              port: server
+            initialDelaySeconds: {{ .Values.vendure.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vendure.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vendure.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vendure.livenessProbe.failureThreshold }}
+          {{- end }}
+
+          {{- if .Values.vendure.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.vendure.readinessProbe.path }}
+              port: server
+            initialDelaySeconds: {{ .Values.vendure.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vendure.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vendure.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vendure.readinessProbe.failureThreshold }}
+          {{- end }}
+
+          {{- if .Values.vendure.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.vendure.startupProbe.path | default "/health" }}
+              port: server
+            initialDelaySeconds: {{ .Values.vendure.startupProbe.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ .Values.vendure.startupProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.vendure.startupProbe.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.vendure.startupProbe.failureThreshold | default 30 }}
+          {{- end }}
+
+          {{- if .Values.vendure.lifecycle }}
+          lifecycle:
+            {{- toYaml .Values.vendure.lifecycle | nindent 12 }}
+          {{- else if .Values.vendure.enableGracefulShutdown }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          {{- end }}
+
+          volumeMounts:
+            - name: admin-ui-dist
+              mountPath: /app/dist/admin-ui/dist
+            - name: assets-cache
+              mountPath: /app/dist/src/assets
+            - name: tmp
+              mountPath: /tmp
+            - name: stock-exports
+              mountPath: /app/static/stock-exports
+            {{- if .Values.vendure.securityContext.readOnlyRootFilesystem }}
+            - name: node-cache
+              mountPath: /home/node/.cache
+            {{- end }}
+
+      initContainers:
+        - name: copy-admin-ui
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.vendure.image.repository }}:{{ .Values.vendure.image.tag }}"
+          imagePullPolicy: {{ .Values.vendure.image.pullPolicy }}
+          command: ["sh", "-c", "cp -a /app/dist/admin-ui/dist/. /admin-ui-dist/"]
+          volumeMounts:
+            - name: admin-ui-dist
+              mountPath: /admin-ui-dist
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: admin-ui-dist
+          emptyDir:
+            sizeLimit: 300Mi
+        - name: assets-cache
+          emptyDir:
+            sizeLimit: 200Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: stock-exports
+          emptyDir:
+            sizeLimit: 500Mi
+        {{- if .Values.vendure.securityContext.readOnlyRootFilesystem }}
+        - name: node-cache
+          emptyDir:
+            sizeLimit: 200Mi
+        {{- end }}
+      {{- with .Values.vendure.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vendure.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vendure.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vendure.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

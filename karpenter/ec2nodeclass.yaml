@@ -1,0 +1,52 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  # IAM Role for Karpenter nodes
+  role: "KarpenterNodeRole-vendure-prod"
+
+  # AMI Selection - Use latest Amazon Linux 2023 for EKS
+  amiSelectorTerms:
+    - alias: al2023@latest
+
+  # Subnet Discovery - Uses tagged public subnets
+  # Tag your subnets with: karpenter.sh/discovery=vendure-prod
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "vendure-prod"
+
+  # Security Group Discovery - Uses tagged cluster security group
+  # Tag your SG with: karpenter.sh/discovery=vendure-prod
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "vendure-prod"
+
+  # Enable public IP for nodes (required for public subnet setup)
+  associatePublicIPAddress: true
+
+  # EBS Volume Configuration
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 30Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        encrypted: true
+        deleteOnTermination: true
+
+  # Instance Tags
+  tags:
+    Name: vendure-prod-app-karpenter
+    Environment: production
+    ManagedBy: karpenter
+    Cluster: vendure-prod
+    Project: vendure-saas
+
+  # IMDSv2 (Instance Metadata Service) - Security best practice
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required

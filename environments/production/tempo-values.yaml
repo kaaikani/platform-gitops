@@ -1,0 +1,171 @@
+# =============================================================================
+# TEMPO - DISTRIBUTED TRACING
+# =============================================================================
+# Tempo is Grafana's distributed tracing backend
+# Integrates seamlessly with Grafana, Loki, and Prometheus
+#
+# Usage:
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm repo update
+#   helm install tempo grafana/tempo-distributed \
+#     -n monitoring \
+#     -f helm/environments/production/tempo-values.yaml
+#
+# Query traces in Grafana:
+#   - Use Explore → Tempo datasource
+#   - Search by service name, trace ID, or tags
+#   - Correlate with logs (Loki) and metrics (Prometheus)
+#
+# Estimated Resources: ~500m CPU, ~1Gi RAM
+# Estimated Storage: ~20Gi (with 7-day retention)
+# Estimated Cost: ~$1.60/month (gp3 storage)
+# =============================================================================
+
+# =============================================================================
+# TEMPO CONFIGURATION
+# =============================================================================
+tempo:
+  # Single replica for production (can scale if needed)
+  replicas: 1
+
+  # Storage configuration
+  storage:
+    type: s3  # Use S3 for cost efficiency (or filesystem for simplicity)
+    s3:
+      bucket: vendure-tempo-traces  # Create this S3 bucket first
+      region: ap-south-1
+      # Use IRSA for S3 access (recommended)
+      # Or provide access keys via secret
+    # Alternative: Use filesystem (simpler but less scalable)
+    # filesystem:
+    #   directory: /var/tempo
+
+  # Retention (7 days for production - traces are large)
+  retention:
+    period: 168h  # 7 days
+    deleteRequest:
+      enabled: true
+      period: 24h
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Schedule on app nodes (on-demand, no taints)
+  nodeSelector:
+    node-group: app
+
+  tolerations: []
+
+  # Tempo configuration
+  config:
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9095
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+        jaeger:
+          protocols:
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+            grpc:
+              endpoint: 0.0.0.0:14250
+        zipkin:
+          endpoint: 0.0.0.0:9411
+
+    ingester:
+      max_block_duration: 5m
+      max_block_bytes: 1073741824  # 1GB
+
+    compactor:
+      compaction:
+        block_retention: 168h  # 7 days
+        compacted_block_retention: 168h
+
+    storage:
+      trace:
+        backend: s3  # or filesystem
+        s3:
+          bucket: vendure-tempo-traces
+          region: ap-south-1
+        # Alternative filesystem config:
+        # filesystem:
+        #   path: /var/tempo/traces
+
+    overrides:
+      defaults:
+        ingestion_rate_limit_bytes: 10000000  # 10MB/s
+        ingestion_burst_size_bytes: 20000000   # 20MB burst
+
+# =============================================================================
+# SERVICE CONFIGURATION
+# =============================================================================
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3200
+      targetPort: 3200
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: jaeger-grpc
+      port: 14250
+      targetPort: 14250
+    - name: jaeger-http
+      port: 14268
+      targetPort: 14268
+    - name: zipkin
+      port: 9411
+      targetPort: 9411
+
+# =============================================================================
+# INGRESS (Optional - for external access)
+# =============================================================================
+ingress:
+  enabled: false  # Usually accessed via Grafana
+
+# =============================================================================
+# NOTES
+# =============================================================================
+# 1. Create S3 bucket before deploying:
+#    aws s3 mb s3://vendure-tempo-traces --region ap-south-1
+#
+# 2. Configure IRSA for S3 access (recommended):
+#    eksctl create iamserviceaccount \
+#      --name tempo \
+#      --namespace monitoring \
+#      --cluster vendure-cluster \
+#      --attach-policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess \
+#      --approve
+#
+# 3. Add Tempo as datasource in Grafana:
+#    - Go to Grafana → Configuration → Data Sources
+#    - Add Tempo datasource
+#    - URL: http://tempo:3200
+#
+# 4. Enable trace-to-logs correlation:
+#    - In Grafana Tempo datasource settings
+#    - Enable "Loki" integration
+#    - Point to Loki service URL
+#
+# 5. Enable trace-to-metrics correlation:
+#    - In Grafana Tempo datasource settings
+#    - Enable "Prometheus" integration
+#    - Point to Prometheus service URL
+

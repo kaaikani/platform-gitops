@@ -1,0 +1,448 @@
+# Default values for vendure-stack
+# This is a YAML-formatted file.
+
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+global:
+  namespace: vendure
+  environment: production
+  imageRegistry: ""
+
+# =============================================================================
+# NAMESPACE CONFIGURATION
+# =============================================================================
+# Note: Use Helm's --create-namespace flag instead of creating manually
+# Example: helm install vendure ./helm/vendure-stack -n vendure-production --create-namespace
+namespace:
+  # Create namespace via Helm (optional - can also use --create-namespace flag)
+  create: false  # Set to true to create namespace in Helm chart, or use --create-namespace flag
+  name: ""  # If empty, uses .Release.Namespace
+  
+  # Pod Security Standards (PSS) labels
+  podSecurity:
+    enforce: ""  # restricted, baseline, or privileged
+    audit: ""    # restricted, baseline, or privileged
+    warn: ""     # restricted, baseline, or privileged
+
+# =============================================================================
+# VENDURE APPLICATION
+# =============================================================================
+vendure:
+  enabled: true
+
+  # Replica count
+  replicaCount: 1
+
+  # Image configuration
+  image:
+    repository: vendure-local
+    tag: latest  # OK for local development, but use versioned tags for production
+    pullPolicy: IfNotPresent
+
+  # Security context (run as non-root user)
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: false  # Set to true if app doesn't write to filesystem
+
+  # Graceful shutdown
+  terminationGracePeriodSeconds: 30
+  enableGracefulShutdown: true
+
+  # Startup probe for slow-starting applications
+  startupProbe:
+    enabled: false  # Enable for production
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+  # Resource limits and requests
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+  # Service configuration
+  service:
+    type: NodePort
+    ports:
+      server:
+        port: 8001
+        nodePort: 30080
+      admin:
+        port: 3002
+        nodePort: 30082
+
+  # Environment variables
+  env:
+    NODE_ENV: production
+    APP_ENV: production
+    COOKIE_SECRET: "change-me-in-production"
+    SUPERADMIN_USERNAME: "superadmin"
+    SUPERADMIN_PASSWORD: "superadmin123"
+
+  # Database connection (references mysql service)
+  database:
+    host: "{{ .Release.Name }}-mysql"
+    port: 3306
+    name: vendure
+
+  # Redis connection (references redis service)
+  redis:
+    host: "{{ .Release.Name }}-redis-master"
+    port: 6379
+
+  # Health checks
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    path: /health
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+    path: /health
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1  # Fallback if maxUnavailable not set
+    maxUnavailable: null  # Preferred: allows more flexible upgrades
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity
+  affinity: {}
+
+  # Annotations for pods
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8001"
+    prometheus.io/path: "/metrics"
+
+  # DNS Configuration
+  # dnsPolicy: ClusterFirst (default) - Use cluster DNS, fallback to host DNS
+  # dnsPolicy: ClusterFirstWithHostNet - Use cluster DNS even with hostNetwork
+  # dnsPolicy: Default - Use host DNS
+  # dnsPolicy: None - Use custom dnsConfig
+  dnsPolicy: ClusterFirst
+  
+  # Use FQDN for service names (recommended for cross-namespace communication)
+  # When true: uses service-name.namespace.svc.cluster.local
+  # When false: uses short service-name (only works within same namespace)
+  useFQDN: false
+  
+  # Custom DNS configuration (optional, overrides default)
+  # If not set, uses default: ndots=2, searches for namespace.svc.cluster.local
+  dnsConfig: {}
+  # Example custom DNS config:
+  # dnsConfig:
+  #   nameservers:
+  #     - 8.8.8.8
+  #   searches:
+  #     - custom.search.domain
+  #   options:
+  #     - name: ndots
+  #       value: "3"
+
+# =============================================================================
+# MYSQL DATABASE
+# =============================================================================
+mysql:
+  enabled: true
+
+  # Use standalone mode for simplicity (set to false for replication)
+  architecture: standalone
+
+  auth:
+    rootPassword: "rootpassword"
+    database: vendure
+    username: vendure
+    password: "vendurepassword"
+
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+    # MySQL configuration
+    configuration: |-
+      [mysqld]
+      default_authentication_plugin=mysql_native_password
+      skip-name-resolve
+      explicit_defaults_for_timestamp
+      basedir=/opt/bitnami/mysql
+      plugin_dir=/opt/bitnami/mysql/lib/plugin
+      port=3306
+      socket=/opt/bitnami/mysql/tmp/mysql.sock
+      datadir=/bitnami/mysql/data
+      tmpdir=/opt/bitnami/mysql/tmp
+      max_allowed_packet=16M
+      bind-address=*
+      pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
+      log-error=/opt/bitnami/mysql/logs/mysqld.log
+      character-set-server=UTF8
+      collation-server=utf8_general_ci
+      slow_query_log=0
+      long_query_time=10.0
+
+      [client]
+      port=3306
+      socket=/opt/bitnami/mysql/tmp/mysql.sock
+      default-character-set=UTF8
+      plugin_dir=/opt/bitnami/mysql/lib/plugin
+
+      [manager]
+      port=3306
+      socket=/opt/bitnami/mysql/tmp/mysql.sock
+      pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
+
+  # Metrics exporter for Prometheus
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+# =============================================================================
+# REDIS CACHE
+# =============================================================================
+redis:
+  enabled: true
+
+  # Use standalone mode
+  architecture: standalone
+
+  auth:
+    enabled: false
+
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+      storageClass: ""
+
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "250m"
+
+  # Metrics exporter for Prometheus
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+# =============================================================================
+# PROMETHEUS MONITORING
+# =============================================================================
+prometheus:
+  enabled: true
+
+  server:
+    service:
+      type: NodePort
+      nodePort: 30090
+
+    retention: "15d"
+
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+    persistentVolume:
+      enabled: true
+      size: 10Gi
+
+  alertmanager:
+    enabled: false
+
+  pushgateway:
+    enabled: false
+
+  nodeExporter:
+    enabled: true
+
+  kubeStateMetrics:
+    enabled: true
+
+# =============================================================================
+# GRAFANA (Optional)
+# =============================================================================
+grafana:
+  enabled: false
+
+  adminUser: admin
+  adminPassword: admin123
+
+  service:
+    type: NodePort
+    nodePort: 30091
+
+  persistence:
+    enabled: true
+    size: 5Gi
+
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://{{ .Release.Name }}-prometheus-server:9090
+          access: proxy
+          isDefault: true
+
+# =============================================================================
+# INGRESS (Optional - for production)
+# =============================================================================
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+  hosts:
+    - host: vendure.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 8001
+
+  tls: []
+  #  - secretName: vendure-tls
+  #    hosts:
+  #      - vendure.local
+
+# =============================================================================
+# APP SECRETS REFERENCE
+# =============================================================================
+appSecrets:
+  name: "vendure-app-secrets"
+
+# =============================================================================
+# SECRETS MANAGEMENT
+# =============================================================================
+# For production: Use AWS Secrets Manager with External Secrets Operator
+# See: docs/AWS-SECRETS-MANAGER-SETUP.md
+
+secrets:
+  # Set to false when using External Secrets Operator
+  create: true
+
+  # Or reference existing secrets
+  existingSecret: ""
+
+  # Database credentials (only used if secrets.create=true)
+  # ⚠️  NEVER use these in production - use AWS Secrets Manager instead
+  database:
+    rootPassword: "rootpassword"
+    password: "vendurepassword"
+
+  # Vendure secrets
+  # ⚠️  NEVER use these in production - use AWS Secrets Manager instead
+  vendure:
+    cookieSecret: "your-super-secret-cookie-key-change-in-production"
+    superadminPassword: "superadmin123"
+
+# External Secrets Operator Configuration
+# See: docs/AWS-SECRETS-MANAGER-SETUP.md for setup instructions
+externalSecrets:
+  enabled: false  # Set to true to use AWS Secrets Manager
+  createSecretStore: true  # Create SecretStore resource
+  serviceAccountName: external-secrets  # Service account with IRSA
+  aws:
+    region: ap-south-1
+  secretName: vendure/production  # Name in AWS Secrets Manager
+  refreshInterval: 1h  # How often to sync from AWS
+  includeRootPassword: false
+  includeTotpSalt: true
+  includeSmtp: true
+  includeShipping: true
+  includeOAuth: true
+  includeApiKeys: true
+
+# =============================================================================
+# SERVICE ACCOUNT
+# =============================================================================
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# =============================================================================
+# RBAC (Role-Based Access Control)
+# =============================================================================
+rbac:
+  enabled: false  # Set to true to enable RBAC roles and bindings
+  
+  # List of developer usernames (read-only access)
+  developers: []
+  # Example:
+  # developers:
+  #   - developer1@example.com
+  #   - developer2@example.com
+  
+  # List of devops usernames (full access to application resources)
+  devops: []
+  # Example:
+  # devops:
+  #   - devops1@example.com
+  #   - devops2@example.com
+  
+  # List of read-only usernames (view-only, cannot modify)
+  readOnly: []
+  # Example:
+  # readOnly:
+  #   - manager@example.com
+  #   - auditor@example.com
+
+# =============================================================================
+# NETWORK POLICIES (Optional - for enhanced security)
+# =============================================================================
+networkPolicies:
+  enabled: false  # Set to true in production for network isolation
+  allowedNamespaces: []  # Namespaces allowed to reach Vendure shop-api (e.g. storefront apps)

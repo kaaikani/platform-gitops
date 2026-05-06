@@ -1,0 +1,177 @@
+# =============================================================================
+# SWADKERALA PRODUCTION ENVIRONMENT VALUES
+# =============================================================================
+# Environment: PRODUCTION (swadkerala-production namespace)
+# Purpose: Customer-facing Remix storefront for SwadKerala brand
+# Domain: swad.kaaikani.co.in
+#
+# Usage:
+#   helm install swadkerala-production ./helm/storefront \
+#     -n swadkerala-production --create-namespace \
+#     -f helm/storefront/values.yaml \
+#     -f helm/storefront/values-production.yaml \
+#     -f helm/environments/production/swadkerala-values.yaml
+# =============================================================================
+
+global:
+  namespace: swadkerala-production
+  environment: production
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+# =============================================================================
+# NAMESPACE CONFIGURATION
+# =============================================================================
+namespace:
+  create: false
+  name: swadkerala-production
+  podSecurity:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+# =============================================================================
+# STOREFRONT APPLICATION
+# =============================================================================
+storefront:
+  enabled: true
+  replicaCount: 2
+  # Blue/Green deployment via Argo Rollouts
+  blueGreen:
+    enabled: true
+    autoPromotionEnabled: true
+    autoPromotionSeconds: 30
+    scaleDownDelaySeconds: 30
+    previewReplicaCount: 1
+  image:
+    repository: swadkerala
+    tag: "v0.0.15"
+    pullPolicy: Always
+  # Resource sizing for Remix SSR (Node.js)
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "150m"
+    limits:
+      memory: "768Mi"
+      cpu: "500m"
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8005
+  env:
+    NODE_ENV: production
+    PORT: "8005"
+    # Server-side (SSR): internal K8s DNS — <1ms latency, no internet round-trip
+    VENDURE_API_URL: "http://vendure-production-vendure-stack-vendure.vendure-production.svc.cluster.local/shop-api"
+    # Client-side (browser JS): must use public URL — browser can't reach K8s DNS
+    PUBLIC_VENDURE_API_URL: "https://kaaikani.co.in/shop-api"
+    HYGRAPH_ENDPOINT: ""
+  # Secrets — stored in Kubernetes Secret, not in Git
+  secrets:
+    create: false
+    existingSecret: "swadkerala-secrets"
+  podAnnotations:
+    reloader.stakater.com/auto: "true"
+  # Health probes
+  livenessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    timeoutSeconds: 30
+    failureThreshold: 5
+  readinessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 5
+  startupProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 30
+    failureThreshold: 30
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 75
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  # Run on storefront nodes (vendure-prod-storefront-ng-medium nodegroup)
+  nodeSelector:
+    node-group: storefront
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - swadkerala
+            topologyKey: topology.kubernetes.io/zone
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: true
+  terminationGracePeriodSeconds: 30
+  enableGracefulShutdown: true
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app: swadkerala
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app: swadkerala
+# =============================================================================
+# INGRESS CONFIGURATION (AWS ALB)
+# =============================================================================
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/group.name: vendure-shared
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c,arn:aws:acm:ap-south-1:149536454380:certificate/19bc11fa-8478-4db4-9d56-22663150da3d"
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "15"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/tags: Environment=production
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+  hosts:
+    - host: www.swadkerala.com
+      paths:
+        - path: /
+          pathType: Prefix
+          port: 80
+# =============================================================================
+# SECURITY
+# =============================================================================
+networkPolicies:
+  enabled: true
+# =============================================================================
+# PRIORITY CLASS
+# =============================================================================
+priorityClassName: ""

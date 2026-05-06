@@ -1,0 +1,275 @@
+# =============================================================================
+# LOKI LOCAL TESTING CONFIGURATION
+# =============================================================================
+# Environment: LOCAL (for Minikube/Docker Desktop/Kind)
+# Purpose: Test Loki log collection locally before deploying to EKS
+#
+# Features:
+#   - Uses local filesystem storage (no S3 needed)
+#   - Captures ALL logs including console.log
+#   - Same Promtail config as production (for testing)
+#   - Minimal resources for local machine
+#
+# Usage:
+#   1. Switch to local cluster: kubectl config use-context minikube
+#   2. Create namespace: kubectl create namespace monitoring
+#   3. Deploy: helm install loki grafana/loki-stack \
+#        -n monitoring -f helm/environments/local/loki-values.yaml
+#   4. Test: ./helm/environments/local/test-loki-logs.sh
+# =============================================================================
+
+loki:
+  enabled: true
+  replicas: 1
+
+  # Use local filesystem storage (no S3 for local testing)
+  persistence:
+    enabled: true
+    size: 5Gi  # Small size for local testing
+    storageClassName: standard  # Minikube default
+    # For Docker Desktop: use hostPath or standard
+    # For Kind: may need to create storage class
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  config:
+    auth_enabled: false
+
+    ingester:
+      chunk_idle_period: 3m
+      chunk_block_size: 262144
+      chunk_retain_period: 1m
+      max_transfer_retries: 0
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h  # 7 days (same as production)
+      max_entries_limit_per_query: 5000
+      ingestion_rate_mb: 5
+      ingestion_burst_size_mb: 10
+
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem  # Local filesystem (not S3)
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      # Use local filesystem (no S3 for local testing)
+      boltdb_shipper:
+        active_index_directory: /data/loki/boltdb-shipper-active
+        cache_location: /data/loki/boltdb-shipper-cache
+        cache_ttl: 12h
+        shared_store: filesystem  # Local filesystem
+    
+    compactor:
+      working_directory: /data/loki/boltdb-shipper-compactor
+      shared_store: filesystem  # Local filesystem
+      # Retention is handled by limits_config.reject_old_samples_max_age
+      # and table_manager retention_deletes_enabled
+
+    table_manager:
+      retention_deletes_enabled: true
+      # Retention period is set via limits_config.reject_old_samples_max_age (168h = 7 days)
+
+  # No node selectors for local
+  nodeSelector: {}
+  tolerations: []
+
+  # No service account needed for local (no S3/IRSA)
+  serviceAccount:
+    create: true
+    annotations: {}
+
+promtail:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  config:
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+        batchwait: 1s
+        batchsize: 1048576
+
+    positions:
+      filename: /run/promtail/positions.yaml
+
+    scrape_configs:
+      # =============================================================================
+      # VENDURE APPLICATION LOGS - Captures ALL logs including console.log
+      # SAME CONFIG AS PRODUCTION (for testing)
+      # =============================================================================
+      - job_name: kubernetes-pods-vendure
+        kubernetes_sd_configs:
+          - role: pod
+            # Only scrape pods in Vendure namespaces
+            namespaces:
+              names:
+                - vendure-local
+                - vendure-test
+                - vendure-production  # If testing with production namespace
+
+        # IMPORTANT: Capture ALL log streams (stdout + stderr)
+        # This includes console.log, console.error, console.warn, etc.
+        pipeline_stages:
+          # Parse CRI (Container Runtime Interface) logs
+          # This captures stdout/stderr from containers (includes console.log)
+          # CRI stage extracts: timestamp, stream (stdout/stderr), and log line
+          - cri: {}
+          
+          # Try to parse JSON logs (Vendure Logger outputs)
+          # If not JSON, continue with plain text (console.log outputs)
+          # This ensures BOTH structured and unstructured logs are captured
+          - json:
+              expressions:
+                level: level
+                msg: msg
+                message: message
+                timestamp: timestamp
+                context: context
+                error: error
+              # CRITICAL: Don't fail if log is not JSON (console.log is plain text)
+              # This ensures console.log outputs are NOT dropped
+              drop_malformed: false
+          
+          # Extract log level label for filtering (optional)
+          # Only add if level exists in JSON, otherwise keep original log
+          - labels:
+              level:
+          
+          # OPTIONAL: Drop only very verbose structured debug logs
+          # IMPORTANT: This ONLY drops structured logs with level="debug"
+          # console.log outputs are NOT dropped because they don't have level="debug"
+          # They're plain text and will pass through
+          - match:
+              selector: '{level="debug"}'
+              action: drop
+              drop_counter_reason: "structured_debug_only"
+          - match:
+              selector: '{level="verbose"}'
+              action: drop
+              drop_counter_reason: "structured_verbose_only"
+          - match:
+              selector: '{level="trace"}'
+              action: drop
+              drop_counter_reason: "structured_trace_only"
+          
+          # Note: console.log, console.error, console.warn outputs are plain text
+          # They don't have level labels, so they pass through and are captured
+
+        relabel_configs:
+          # Keep only Vendure namespaces
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+            regex: "vendure-local|vendure-test|vendure-production"
+            action: keep
+          
+          # Pod name
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          
+          # Container name
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          
+          # App name (for filtering Vendure logs)
+          # Extract app label if present (don't drop if missing)
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            target_label: app
+          
+          # Also try alternative app label
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          
+          # Node name (for debugging)
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          
+          # Stream type (stdout/stderr) - important for console.log
+          - source_labels: [__meta_kubernetes_pod_container_id]
+            target_label: stream
+            replacement: "stdout"
+          
+          # Add environment label
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: environment
+            regex: "vendure-(.*)"
+            replacement: "${1}"
+          
+          # Keep all other metadata
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          
+          # Drop internal Kubernetes labels
+          - action: labeldrop
+            regex: __meta_kubernetes_pod_label_pod_template_hash
+
+grafana:
+  enabled: true  # Enable Grafana for local testing
+  adminPassword: admin  # Default password (change in production!)
+  service:
+    type: NodePort
+    nodePort: 31000  # Access at http://localhost:31000 (after port-forward)
+
+prometheus:
+  enabled: false  # Disable Prometheus for local (optional)
+
+# =============================================================================
+# LOCAL TESTING NOTES
+# =============================================================================
+#
+# 1. Switch to local cluster:
+#    kubectl config use-context minikube
+#    # or: kubectl config use-context docker-desktop
+#
+# 2. Create namespace:
+#    kubectl create namespace monitoring
+#
+# 3. Deploy Loki:
+#    helm repo add grafana https://grafana.github.io/helm-charts
+#    helm repo update
+#    helm install loki grafana/loki-stack \
+#      -n monitoring \
+#      -f helm/environments/local/loki-values.yaml
+#
+# 4. Verify Loki is running:
+#    kubectl get pods -n monitoring
+#    kubectl logs -n monitoring -l app=loki
+#
+# 5. Access Grafana:
+#    kubectl port-forward -n monitoring svc/loki-grafana 3000:80
+#    Open: http://localhost:3000
+#    Login: admin / admin
+#    Add Loki datasource: http://loki:3100
+#
+# 6. Test log collection:
+#    ./helm/environments/local/test-loki-logs.sh vendure-local
+#
+# 7. Query logs in Grafana:
+#    {namespace="vendure-local"} |= "console.log"
+#    {namespace="vendure-local"}
+#
+# =============================================================================
+

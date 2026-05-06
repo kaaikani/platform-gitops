@@ -1,0 +1,84 @@
+# =============================================================================
+# Karpenter NodePool - Monitoring Workloads (TEST Environment)
+# =============================================================================
+# Purpose: On-demand nodes for monitoring stack (if needed)
+# Environment: TEST
+# Note: Usually monitoring runs on eksctl managed node, but this is backup
+# =============================================================================
+
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: monitoring-test
+spec:
+  # Node Template
+  template:
+    metadata:
+      labels:
+        node-type: system
+        workload: monitoring
+        environment: test
+        lifecycle: on-demand
+    spec:
+      # Instance Requirements
+      requirements:
+        # Architecture
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        # Operating System
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        # Capacity Type - ON-DEMAND only for stability
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+        # Instance Categories - General purpose
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["t"]
+
+        # Instance Sizes - Small only
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["small"]
+
+        # Instance Generation - t3 or newer
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["2"]
+
+      # Taint for monitoring workloads
+      taints:
+        - key: "dedicated"
+          value: "monitoring"
+          effect: "NoSchedule"
+
+      # Reference to EC2NodeClass
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default-test
+
+      # Node expiry - Replace nodes every 30 days
+      expireAfter: 720h
+
+  # Resource Limits for this NodePool (MINIMAL for test)
+  limits:
+    cpu: 4          # Max 4 vCPUs total
+    memory: 8Gi     # Max 8GB RAM total
+
+  # Disruption Settings
+  disruption:
+    # Conservative consolidation for monitoring
+    consolidationPolicy: WhenEmpty
+    # Wait 24 hours before consolidating
+    consolidateAfter: 24h
+
+  # Priority weight (lower priority than application)
+  weight: 10
+

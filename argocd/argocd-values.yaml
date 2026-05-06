@@ -1,0 +1,34 @@
+# =============================================================================
+# ARGOCD INGRESS CONFIGURATION
+# =============================================================================
+# Domain: argo.kaaikani.co.in
+#
+# Apply with:
+#   kubectl -n argocd patch svc argocd-server -p '{"spec": {"type": "ClusterIP"}}'
+#   kubectl apply -f argocd-ingress.yaml -n argocd
+#
+# Or if using Helm to manage ArgoCD, merge these values:
+#   helm upgrade argocd argo/argo-cd -n argocd -f argocd-values.yaml
+# =============================================================================
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/84533554-2d28-4551-8ede-dee89b2ad15c"
+      alb.ingress.kubernetes.io/backend-protocol: HTTPS
+      alb.ingress.kubernetes.io/healthcheck-path: /healthz
+      alb.ingress.kubernetes.io/tags: Environment=production,Project=argocd
+    hosts:
+      - argo.kaaikani.co.in
+    paths:
+      - /
+    tls:
+      - hosts:
+          - argo.kaaikani.co.in

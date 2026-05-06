@@ -1,0 +1,61 @@
+# =============================================================================
+# GRAFANA TEMPO DATASOURCE CONFIGURATION (LOCAL)
+# =============================================================================
+# This creates a Tempo datasource in Grafana for distributed tracing
+# Apply with: kubectl apply -f helm/environments/local/grafana-tempo-datasource.yaml -n monitoring
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-tempo-datasource
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: datasource
+data:
+  tempo.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        uid: tempo
+        isDefault: false
+        jsonData:
+          # Enable trace-to-logs correlation
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ['job', 'instance', 'pod', 'namespace']
+            mappedTags: [{ key: 'service.name', value: 'service' }]
+            mapTagNamesEnabled: false
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '1h'
+            filterByTraceID: false
+            filterBySpanID: false
+          
+          # Enable trace-to-metrics correlation
+          tracesToMetrics:
+            datasourceUid: prometheus
+            tags: [{ key: 'service.name', value: 'service' }]
+            queries:
+              - name: 'Sample query'
+                query: 'sum(rate(tempo_spanmetrics_latency_bucket{$$__tags}[5m]))'
+          
+          # Service map configuration
+          serviceMap:
+            datasourceUid: prometheus
+          
+          # Node graph configuration
+          nodeGraph:
+            enabled: true
+          
+          # Search configuration
+          search:
+            hide: false
+          
+          # Loki configuration for log correlation
+          lokiSearch:
+            datasourceUid: loki
+

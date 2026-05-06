@@ -1,0 +1,91 @@
+# Cost-Optimized EKS Spot Node Group Configuration
+# Target: ~$4/day budget (~$120/month)
+#
+# Cost Breakdown (ap-south-1 region):
+#   EKS Control Plane: $0.10/hr = $2.40/day = $72/month (FIXED)
+#   Spot Instance (t3a.medium): ~$0.013/hr = $0.31/day = ~$9.50/month
+#   ALB: ~$0.0225/hr + LCU = ~$0.70/day = ~$21/month
+#   ------------------------------------------------------------
+#   Estimated Total: ~$3.41/day = ~$102.50/month
+#
+# Usage:
+#   eksctl create nodegroup -f spot-nodegroup.yaml
+#   OR
+#   eksctl delete nodegroup --cluster=<cluster-name> --name=<old-nodegroup>
+#   eksctl create nodegroup -f spot-nodegroup.yaml
+
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: vendure-prod
+  region: ap-south-1
+
+# Managed Node Groups with Spot Instances
+managedNodeGroups:
+  - name: spot-ng-cost-optimized
+    # Instance Types - Only t3a.medium for cost control
+    instanceTypes:
+      - t3a.medium   # 2 vCPU, 4GB RAM - Primary (AMD, cheaper)
+
+    # Spot Configuration
+    spot: true
+
+    # Scaling Configuration - 2 nodes for Vendure + Monitoring
+    minSize: 2
+    maxSize: 2
+    desiredCapacity: 2
+
+    # Volume Configuration
+    volumeSize: 30
+    volumeType: gp3
+    volumeIOPS: 3000
+    volumeThroughput: 125
+
+    # Labels for node selection
+    labels:
+      node-type: spot
+      workload: vendure
+      cost-tier: budget
+
+    # Taints (optional - uncomment to ensure only specific workloads run here)
+    # taints:
+    #   - key: spot
+    #     value: "true"
+    #     effect: PreferNoSchedule
+
+    # Tags for cost tracking and identification
+    tags:
+      Name: vendure-prod-spot-node
+      Environment: production
+      CostCenter: vendure
+      SpotInstance: "true"
+      Budget: "4-dollar-per-day"
+
+    # IAM Configuration
+    iam:
+      withAddonPolicies:
+        imageBuilder: true
+        autoScaler: true
+        albIngress: true
+        cloudWatch: true
+
+    # Public networking (using cluster's public subnets)
+    privateNetworking: false
+
+    # Use specific subnets from your cluster
+    subnets:
+      - subnet-0638daa85aba925fc  # ap-south-1a
+      - subnet-0151de046e8f6d60b  # ap-south-1b
+
+# Cluster Autoscaler Configuration (for automatic scaling)
+# Note: Install cluster-autoscaler separately
+# helm repo add autoscaler https://kubernetes.github.io/autoscaler
+# helm install cluster-autoscaler autoscaler/cluster-autoscaler \
+#   --set autoDiscovery.clusterName=vendure-cluster \
+#   --set awsRegion=ap-south-1 \
+#   -n kube-system
+
+---
+# Alternative: Use this for eksctl to create just the node group
+# eksctl create nodegroup --config-file=spot-nodegroup.yaml --include=spot-ng-cost-optimized

@@ -1,0 +1,52 @@
+# =============================================================================
+# ArgoCD Application - Velero Backup
+# =============================================================================
+# Manages Velero backup solution using Helm chart
+# Uses multi-source: Helm chart from vmware-tanzu + values from Git
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: velero
+    component: backup
+spec:
+  project: default
+
+  sources:
+    - repoURL: https://vmware-tanzu.github.io/helm-charts
+      chart: velero
+      targetRevision: 11.3.2
+      helm:
+        releaseName: velero
+        valueFiles:
+          - $values/environments/production/velero-values.yaml
+    - repoURL: https://github.com/kaaikani/platform-gitops.git
+      targetRevision: master
+      ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

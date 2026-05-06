@@ -1,0 +1,12 @@
+dependencies:
+- name: mysql
+  repository: https://charts.bitnami.com/bitnami
+  version: 9.23.0
+- name: redis
+  repository: https://charts.bitnami.com/bitnami
+  version: 18.19.4
+- name: prometheus
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 25.30.2
+digest: sha256:7df5a4441dd66a46bfe6a98fb0433b79b01e2a525f748104987fb04beafde946
+generated: "2026-01-07T11:03:13.784874643+05:30"

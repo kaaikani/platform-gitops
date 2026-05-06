@@ -1,0 +1,8 @@
+
+# Never commit secrets — use AWS Secrets Manager + ExternalSecrets
+*-secrets-patch.yaml
+*-secrets.yaml
+.env
+.env.*
+*.pem
+*.key

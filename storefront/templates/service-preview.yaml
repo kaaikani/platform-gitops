@@ -1,0 +1,20 @@
+{{- if and .Values.storefront.enabled .Values.storefront.blueGreen.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "storefront.fullname" . }}-preview
+  labels:
+    {{- include "storefront.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+    role: preview
+spec:
+  type: {{ .Values.storefront.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.storefront.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "storefront.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+{{- end }}

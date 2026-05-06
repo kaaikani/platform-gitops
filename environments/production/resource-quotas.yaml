@@ -1,0 +1,91 @@
+# =============================================================================
+# RESOURCE QUOTAS & LIMIT RANGES - PRODUCTION
+# =============================================================================
+# Prevents any single namespace from consuming all cluster resources.
+# LimitRange provides defaults for pods that don't specify limits.
+#
+# Apply:
+#   kubectl apply -f resource-quotas.yaml
+# =============================================================================
+
+---
+# ===== VENDURE-PRODUCTION NAMESPACE =====
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: vendure-production-quota
+  namespace: vendure-production
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: "8Gi"
+    limits.cpu: "8"
+    limits.memory: "16Gi"
+    pods: "20"
+    persistentvolumeclaims: "5"
+    services: "10"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: vendure-production-limits
+  namespace: vendure-production
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "50m"
+        memory: "64Mi"
+      max:
+        cpu: "2"
+        memory: "4Gi"
+      min:
+        cpu: "10m"
+        memory: "16Mi"
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: "8Gi"
+
+---
+# ===== MONITORING NAMESPACE =====
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: monitoring-quota
+  namespace: monitoring
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: "8Gi"
+    limits.cpu: "8"
+    limits.memory: "16Gi"
+    pods: "30"
+    persistentvolumeclaims: "10"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: monitoring-limits
+  namespace: monitoring
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "300m"
+        memory: "256Mi"
+      defaultRequest:
+        cpu: "50m"
+        memory: "64Mi"
+      max:
+        cpu: "2"
+        memory: "4Gi"
+      min:
+        cpu: "10m"
+        memory: "16Mi"
+

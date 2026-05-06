@@ -1,0 +1,62 @@
+# =============================================================================
+# ArgoCD Application - Stakater Reloader
+# =============================================================================
+# Auto-restarts pods when ConfigMaps or Secrets change
+# Ensures Vendure picks up new secrets from External Secrets Operator
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reloader
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: reloader
+    component: secret-management
+spec:
+  project: default
+
+  sources:
+    - repoURL: https://stakater.github.io/stakater-charts
+      chart: reloader
+      targetRevision: 1.2.1
+      helm:
+        releaseName: reloader
+        values: |
+          reloader:
+            watchGlobally: true
+            deployment:
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+              nodeSelector:
+                dedicated: platform
+              tolerations:
+                - key: "dedicated"
+                  operator: "Equal"
+                  value: "platform"
+                  effect: "NoSchedule"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

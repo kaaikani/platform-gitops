@@ -1,0 +1,562 @@
+# =============================================================================
+# VENDURE PRODUCTION ENVIRONMENT VALUES
+# =============================================================================
+# Environment: PRODUCTION (vendure-production namespace)
+# Purpose: Live customer-facing e-commerce platform
+#
+# Architecture (Recommended):
+#   - Vendure on ON-DEMAND instances (reliable, no interruptions)
+#   - External RDS MySQL (production database)
+#   - External Redis Cloud (production cache)
+#   - Monitoring on ON-DEMAND instance (always available)
+#
+# Usage:
+#   kubectl create namespace vendure-production
+#   kubectl apply -f vendure-secrets-production.yaml -n vendure-production
+#   helm install vendure ./helm/vendure-stack \
+#     -n vendure-production \
+#     -f helm/environments/production/vendure-values.yaml
+#
+# Estimated Cost: ~$30-60/month (on-demand instances)
+# =============================================================================
+
+global:
+  namespace: vendure-production
+  environment: production
+  # ECR registry
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+# =============================================================================
+# NAMESPACE CONFIGURATION
+# =============================================================================
+# Note: Use Helm's --create-namespace flag instead of creating manually
+# Example: helm install vendure ./helm/vendure-stack -n vendure-production --create-namespace
+namespace:
+  create: false # Use --create-namespace flag with helm install/upgrade
+  name: vendure-production
+  podSecurity:
+    enforce: restricted # Most secure for production
+    audit: restricted
+    warn: restricted
+# =============================================================================
+# VENDURE APPLICATION
+# =============================================================================
+vendure:
+  enabled: true
+  replicaCount: 2
+  # RollingUpdate strategy: zero-downtime deploys
+  # maxSurge: 1 = create 1 new pod FIRST, wait until ready, THEN kill old pod
+  # maxUnavailable: 0 = never kill an old pod until new one is serving traffic
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  image:
+    repository: vendure-prod
+    tag: "devops-v1.0.55"
+    pullPolicy: Always
+  # Resource sizing based on actual production usage (measured 2026-03-02):
+  #   - Actual per pod: 477-799m CPU, ~260Mi RAM (kubectl top)
+  #   - Total across 5 pods: ~3121m CPU
+  #   - Requests = guaranteed reservation (scheduler uses this)
+  #   - Limits = hard ceiling (OOMKill/throttle if exceeded)
+  # Memory bumped 1Gi → 2Gi after pod OOMKill on 2026-04-29 19:21 IST.
+  # Node heap capped at 1500 MiB (see maxOldSpaceSize below) — 500 MiB
+  # remains for non-heap (native modules, buffers, file streams).
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "600m"
+    limits:
+      memory: "2Gi"
+      cpu: "1500m"
+  # Node.js V8 heap cap (in MiB). Without this, V8 sizes the heap from cgroup
+  # memory and can OOM-kill the pod. Keep ≤ 75% of resources.limits.memory.
+  maxOldSpaceSize: 1500
+  service:
+    type: ClusterIP
+    ports:
+      server:
+        port: 80
+      admin:
+        port: 3002
+  env:
+    NODE_ENV: production
+    APP_ENV: production
+    SUPERADMIN_USERNAME: superadmin
+    # Apple OAuth Bundle IDs (not sensitive — public iOS bundle identifiers)
+    APPLE_CLIENT_ID_SOUTHMITHAI: "com.kaaikani.kaaikani"
+    APPLE_CLIENT_ID_SWADKERALA: "com.Swadkerala.Swadkerala"
+    APPLE_CLIENT_ID_KAAIKANIDIRECT: "com.kaaikanidirect.kaaikanidirect"
+    APPLE_CLIENT_ID_DEFAULT: "com.kaaikani.kaaikani"
+    # OpenTelemetry Tracing Configuration
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+    OTEL_SERVICE_NAME: "vendure"
+    OTEL_RESOURCE_ATTRIBUTES: "service.name=vendure,service.version=v1.0.6,deployment.environment=production"
+  # Pod annotations for Prometheus scraping
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/metrics"
+  # Health checks — tolerant of brief DB latency spikes (Vendure internal DB
+  # health check has a 1000ms timeout; under heavy load the event loop can
+  # delay the check beyond 1s, returning 503 temporarily).
+  # -------------------------------------------------------------------------
+  # Health Probes — proper DevOps configuration for zero-downtime
+  # -------------------------------------------------------------------------
+  # Startup: handles slow boot (DB migrations, admin UI compile). Liveness and
+  #   readiness are DISABLED until startup succeeds → no premature kills.
+  # Liveness: only restarts truly dead pods. Very tolerant (5 min) because
+  #   Vendure /health does a DB query — brief 503s during load are normal.
+  # Readiness: controls traffic routing. More sensitive — removes pod from
+  #   ALB quickly if unhealthy, adds back when recovered. No restart.
+  # -------------------------------------------------------------------------
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 120
+    periodSeconds: 30 # check every 30s instead of 15s (less pressure on event loop)
+    timeoutSeconds: 10
+    failureThreshold: 10 # 10 consecutive failures = 5 min before kill (was 5 = 75s)
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 0 # startup probe handles boot; no extra delay needed
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6 # 6 failures = 60s before removing from service (was 3 = 30s)
+  # Enable autoscaling for production
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    # 150% of 800m request = 1200m actual usage triggers scale-up.
+    # Each pod has a full c5a.large (2000m), so scale triggers at 60% of instance.
+    targetCPUUtilizationPercentage: 150
+    targetMemoryUtilizationPercentage: 90
+    # HPA behavior configuration for controlled scaling
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0 # React immediately to CPU spikes
+        policies:
+          - type: Pods
+            value: 2
+            periodSeconds: 30 # Add 2 pods per 30 seconds
+      scaleDown:
+        stabilizationWindowSeconds: 300 # Wait 5 minutes before scaling down (prevents flapping)
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 60 # Remove 1 pod per minute when CPU drops
+            # Custom metrics via Prometheus Adapter (request-based scaling)
+            # Disabled — these metrics are not available from the custom metrics API.
+            # To enable, first configure Prometheus Adapter rules for these metrics:
+            #   helm install prometheus-adapter prometheus-community/prometheus-adapter
+            #   -n monitoring -f helm/environments/production/prometheus-adapter-values.yaml
+            # Then uncomment:
+            # customMetrics:
+            #   - type: Pods
+            #     pods:
+            #       metric:
+            #         name: http_requests_per_second
+            #       target:
+            #         type: AverageValue
+            #         averageValue: "100"
+            #   - type: Pods
+            #     pods:
+            #       metric:
+            #         name: http_request_duration_seconds_p95
+            #       target:
+            #         type: AverageValue
+            #         averageValue: "500m"
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1 # Always keep at least 1 pod running during disruptions
+  # Run on ON-DEMAND instances (reliable, no interruptions)
+  # Changed from spot to on-demand for better reliability and graceful handling of disruptions
+  nodeSelector:
+    node-group: vendure
+  # No tolerations needed for on-demand instances
+  tolerations: []
+  # Pack vendure pods on the SAME node (cost-optimized: 1 c5a.large handles 2 pods + worker)
+  # podAffinity tells scheduler: prefer placing new pods where existing vendure pods are.
+  # Karpenter will only launch a 2nd node when HPA scales beyond what 1 node can fit.
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - vendure
+            topologyKey: kubernetes.io/hostname
+  # Security context (run as non-root user)
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: false # Disabled until writable paths are fully mapped
+  # -------------------------------------------------------------------------
+  # Graceful Shutdown — prevents 502s during deploys
+  # -------------------------------------------------------------------------
+  # Sequence: SIGTERM → preStop sleep(15) → ALB deregisters (15-30s) → app drains
+  # terminationGracePeriod MUST be > preStop + drain time (15 + 30 = 45s, use 60s)
+  # -------------------------------------------------------------------------
+  terminationGracePeriodSeconds: 60
+  enableGracefulShutdown: true
+  lifecycle:
+    preStop:
+      exec:
+        # Sleep 15s: gives ALB time to stop sending new requests to this pod.
+        # Without this, ALB sends traffic to a pod that's already shutting down → 502.
+        command: ["/bin/sh", "-c", "sleep 15"]
+  # Startup probe — gates liveness/readiness until app is fully booted
+  # Vendure boot: image pull + init container + Node.js start + DB connect + migrations
+  # Total: 30-120s typical. Allow up to 5 min (failureThreshold × periodSeconds).
+  startupProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 5 # check every 5s (faster detection when app is ready)
+    timeoutSeconds: 5
+    failureThreshold: 60 # 60 × 5s = 5 min max boot time
+    # -------------------------------------------------------------------------
+    # TopologySpreadConstraints — intentionally removed (2026-04-24)
+    # -------------------------------------------------------------------------
+    # Previously spread pods 1-per-node (soft). Removed because:
+    #   1. We are pinned to a single AZ (ap-south-1a, same as RDS) — host-level
+    #      spread only protects against single-node death, not AZ failure.
+    #   2. The spread rule fought podAffinity (co-location) during Karpenter
+    #      consolidation: after a deploy surge spawned a 2nd node, pods stayed
+    #      1-per-node and Karpenter refused to consolidate → steady-state 2
+    #      nodes → ~$56/month wasted.
+    # With spread removed, Karpenter consolidates back to 1 node ~5 min after
+    # any surge (deploy or HPA spike). Trade-off: if that 1 node dies, both
+    # pods die together → ~60-90s downtime while Karpenter provisions a
+    # replacement. Acceptable at current stage (single-AZ anyway, stateless
+    # app, cost pressure). Revisit when multi-AZ is justified by revenue/SLA.
+    # -------------------------------------------------------------------------
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster MySQL - Using Amazon RDS
+mysql:
+  enabled: false
+# External Amazon RDS MySQL (Production Database)
+# IMPORTANT: Use a separate RDS instance for production!
+externalDatabase:
+  enabled: true
+  host: "" # Not used — DB_HOST read from vendure-secrets (AWS Secrets Manager)
+  port: 3306
+  database: "" # Not used — DB_NAME read from vendure-secrets (AWS Secrets Manager)
+  username: admin
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "DB_PASSWORD"
+# =============================================================================
+# REDIS CONFIGURATION
+# =============================================================================
+
+# Disable in-cluster Redis - Using Redis Cloud
+redis:
+  enabled: false
+# External Redis Cloud (Production)
+externalRedis:
+  enabled: true
+  host: "" # Not used — REDIS_HOST read from vendure-secrets (AWS Secrets Manager)
+  port: 6379
+  username: "default"
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "REDIS_PASSWORD"
+# =============================================================================
+# AWS S3 CONFIGURATION (Asset Storage)
+# =============================================================================
+s3:
+  enabled: true
+  bucket: "cdn.kaaikani.co.in"
+  region: "ap-south-1"
+  assetPath: "assets/" # Production assets path
+  # SECURITY: Use IRSA (IAM Roles for Service Accounts) instead of access keys
+  useIRSA: false # Reverted — Vendure S3 plugin code passes explicit credentials object to AWS SDK, which fails with IRSA. To enable IRSA, modify Vendure S3AssetStorageStrategy config to omit the credentials block and let SDK auto-discover.
+  existingSecret: "vendure-secrets"
+  accessKeyIdKey: "AWS_ACCESS_KEY_ID" # Only used if useIRSA: false
+  secretAccessKeyKey: "AWS_SECRET_ACCESS_KEY" # Only used if useIRSA: false
+# =============================================================================
+# MONITORING CONFIGURATION
+# =============================================================================
+prometheus:
+  enabled: false
+  server:
+    enabled: false
+  pushgateway:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  kubeStateMetrics:
+    enabled: false
+grafana:
+  enabled: false
+# ServiceMonitor for external Prometheus
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  interval: 15s # More frequent for production
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus-stack
+# PrometheusRule for production alerts (CRITICAL severity)
+prometheusRule:
+  enabled: true
+  namespace: monitoring
+  labels:
+    release: prometheus-stack
+  rules:
+    - alert: VendureProductionDown
+      expr: up{job=~".*vendure.*", namespace="vendure-production"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "Vendure API is DOWN (not responding for 1 min)"
+        description: "The /health endpoint is returning errors or timing out"
+        cause: "Pod crashed, DB connection lost, or Karpenter node failed"
+        fix: "kubectl get pods -n vendure-production; kubectl logs -n vendure-production deploy/vendure-production-vendure-stack-vendure --tail=100"
+    - alert: VendureProductionHighErrorRate
+      expr: rate(http_requests_total{namespace="vendure-production",status=~"5.."}[5m]) > 0.05
+      for: 3m
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "5xx error rate above 5% for 3 minutes"
+        description: "More than 5% of requests are returning HTTP 500-level errors"
+        cause: "DB timeout, upstream service failure, or application bug in recent deploy"
+        fix: "Check recent deploys in ArgoCD. Check DB latency in Grafana. Rollback if needed: kubectl rollout undo deploy/vendure-production-vendure-stack-vendure -n vendure-production"
+    - alert: VendureProductionHighLatency
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{namespace="vendure-production"}[5m])) > 2
+      for: 5m
+      labels:
+        severity: warning
+        environment: production
+      annotations:
+        summary: "P95 latency above 2 seconds for 5 minutes"
+        description: "95th percentile request time exceeds 2s"
+        cause: "Usually RDS CPU credits exhausted (db.t3.small is throttled). Can also be slow queries or Redis issues."
+        fix: "Check RDS CPU credits in CloudWatch. Upgrade to db.t3.medium if credits are 0. Check slow queries in RDS Performance Insights."
+    - alert: VendureProductionOOMRisk
+      expr: |
+        container_memory_usage_bytes{namespace="vendure-production",container="vendure"}
+        / container_spec_memory_limit_bytes{namespace="vendure-production",container="vendure"} > 0.9
+      for: 3m
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "Pod memory usage above 90% of limit"
+        description: "Pod is about to be OOMKilled by the kernel"
+        cause: "Memory leak, large DB query result, or asset upload spike"
+        fix: "Identify leak via kubectl top pods. Increase limit in vendure-values.yaml if consistent high usage. Restart pod: kubectl rollout restart deploy/vendure-production-vendure-stack-vendure -n vendure-production"
+    - alert: VendureProductionAllPodsDown
+      expr: count(up{job=~".*vendure.*", namespace="vendure-production"} == 1) == 0
+      for: 30s
+      labels:
+        severity: critical
+        environment: production
+      annotations:
+        summary: "ALL Vendure pods are DOWN — complete outage"
+        description: "Zero healthy pods running in vendure-production namespace"
+        cause: "Karpenter node failure, bad deploy, or cluster-wide issue"
+        fix: "URGENT: kubectl get pods -n vendure-production; kubectl describe nodes; rollback if recent deploy"
+# =============================================================================
+# INGRESS CONFIGURATION (AWS ALB)
+# =============================================================================
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/group.name: vendure-shared
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c"
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    # Production specific
+    alb.ingress.kubernetes.io/tags: Environment=production
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+    # Deregistration delay: ALB waits 30s for in-flight requests to complete
+    # before removing a target. Works with preStop sleep(15) to prevent 502s.
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    # WAF: Handled by Cloudflare (upstream proxy) — AWS WAF not needed
+    # If migrating off Cloudflare, enable AWS WAF:
+    # alb.ingress.kubernetes.io/wafv2-acl-arn: "arn:aws:elasticloadbalancing:..."
+  adminUi:
+    enabled: true
+  hosts:
+    - host: kaaikani.co.in
+      paths:
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 80
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+networkPolicies:
+  enabled: true # Enable for production security
+  # Allow storefront apps (SSR pods) to reach Vendure shop-api across namespaces
+  allowedNamespaces:
+    - storefront-production
+    - swadkerala-production
+    - southmithai-production
+# =============================================================================
+# SECRETS MANAGEMENT - AWS Secrets Manager
+# =============================================================================
+# Using AWS Secrets Manager with External Secrets Operator
+# See: docs/AWS-SECRETS-MANAGER-SETUP.md for setup instructions
+secrets:
+  create: false # External Secrets Operator will create the secret
+  existingSecret: "vendure-secrets" # Created by External Secrets Operator
+# External Secrets Operator Configuration
+externalSecrets:
+  enabled: true
+  createSecretStore: false # Using existing ClusterSecretStore
+  clusterSecretStore: aws-secrets-manager
+  refreshInterval: 1m # Fast sync for rotation — AWS API cost ~$0.007/month extra vs 15m
+  awsSecrets:
+    database: "vendure/prod/database"
+    redis: "vendure/prod/redis"
+    awsS3: "vendure/prod/aws-s3"
+    smtps: "vendure/prod/smtps"
+    integrations: "vendure/prod/integrations"
+serviceAccount:
+  create: true
+  annotations:
+    # For AWS IAM Roles for Service Accounts (IRSA)
+    # IMPORTANT: Create IAM role first using eksctl or AWS CLI, then uncomment and update ARN below
+    # eksctl create iamserviceaccount --name vendure-sa --namespace vendure-production \
+    #   --cluster vendure-cluster --attach-policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess \
+    #   --approve --override-existing-serviceaccounts
+    eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/vendure-production-role
+    # TODO: Replace above ARN with actual IAM role ARN after creating service account
+# =============================================================================
+# VENDURE WORKER (Background Job Processing)
+# =============================================================================
+# Runs a separate worker process for background jobs (emails, search indexing,
+# payment webhooks, asset processing). Keeps API pods responsive.
+worker:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "384Mi"
+      cpu: "100m"
+    limits:
+      memory: "1024Mi"
+      cpu: "500m"
+  nodeSelector:
+    node-group: vendure
+  # Same AZ spread as Vendure server (when replicaCount >= 2)
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - vendure-worker
+            topologyKey: topology.kubernetes.io/zone
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app: vendure-worker
+# =============================================================================
+# VENDURE PRIORITY CLASS
+# =============================================================================
+# Ensures Vendure pods are not evicted before monitoring during resource pressure
+priorityClassName: vendure-critical
+# =============================================================================
+# RBAC (Role-Based Access Control)
+# =============================================================================
+# Three-tier access model:
+#   - developers: Read-only (view pods, logs, services - no secrets)
+#   - devops: Full CRUD (cannot delete namespace or modify RBAC)
+#   - readOnly: View-only (for managers/auditors - no secrets access)
+#
+# Users should map to IAM users configured via:
+#   helm/environments/production/configure-rbac-users.sh
+# =============================================================================
+rbac:
+  enabled: true
+  # Developers - Read-only access to namespace resources
+  # Can view: pods, logs, services, configmaps, deployments, HPA
+  # Cannot: create, update, delete anything or view secrets
+  developers:
+    - dev@kaaikani.co.in
+    # Add more developers as they join:
+    # - developer2@kaaikani.co.in
+  # DevOps - Full access to namespace resources
+  # Can: full CRUD on pods, services, configmaps, secrets, deployments, HPA, ingress
+  # Cannot: delete namespaces or modify RBAC (safety guard)
+  devops:
+    - devops@kk
+    # Add more devops engineers as needed:
+    # - devops2@kaaikani.co.in
+  # Read-only users (managers, auditors, stakeholders)
+  # Can view: pods, logs, services, deployments, ingress, network policies
+  # Cannot: view secrets or make any changes
+  readOnly:
+    - admin@kaaikani.co.in
+    # Add auditors/managers:
+    # - manager@kaaikani.co.in
+# =============================================================================
+# PRODUCTION CHECKLIST
+# =============================================================================
+#
+# Before deploying to production:
+#
+# [x] Use separate RDS instance (not shared with test)
+# [x] Use separate Redis instance (not shared with test)
+# [x] Set up proper backup policies for RDS
+# [x] Configure CloudWatch alarms for RDS/Redis
+# [x] Set up Slack/PagerDuty alerts in AlertManager (alertmanager-config.yaml)
+# [x] Use specific image tags (not 'latest')
+# [x] Enable network policies
+# [x] Configure proper IAM roles (IRSA)
+# [x] Set up log aggregation (CloudWatch/Loki)
+# [x] Configure rate limiting at ALB (WAF rate-based rule)
+# [x] Set up Web Application Firewall (WAF) - setup-waf.sh
+# [x] DR restore test script (disaster-recovery/dr-restore-test.sh)
+# [x] Configure automated secrets rotation
+# [x] Enable image scanning (Trivy Operator)
+# [x] Verify Pod Security Standards
+# [x] Configure RBAC users
+# [x] Cross-region S3 replication (disaster-recovery/setup-cross-region-s3.sh)
+# [x] Cross-region RDS read replica (disaster-recovery/setup-cross-region-rds.sh)
+# [x] SLO/Error budget alerting (slo-rules.yaml)
+# [x] Request-based HPA scaling (prometheus-adapter-values.yaml)
+# [x] Replace <SLACK_WEBHOOK_URL> placeholders with actual Slack webhook URLs
+# [ ] Replace <GMAIL_APP_PASSWORD> with Gmail App Password (see monitoring-values.yaml — user must generate from Google Account)
+# [ ] Run setup-waf.sh to create WAF rules
+# [ ] Run setup-cross-region-s3.sh to enable S3 replication
+# [ ] Run dr-restore-test.sh quarterly
+# [ ] Deploy Argo Rollouts for canary deployments (argo-rollouts-values.yaml)
+# [x] Deploy Kyverno policies (extended to all namespaces)
+# [ ] Run chaos tests (chaos-test.sh)
+#
+# =============================================================================

@@ -1,0 +1,310 @@
+# Cost-Optimized Monitoring Stack for kube-prometheus-stack
+# Target Budget: ~$4/day (~$120/month) - Monitoring portion: minimal overhead
+#
+# Key Optimizations:
+#   - Reduced Prometheus retention (7 days instead of 30)
+#   - Minimal storage (10GB instead of 100GB)
+#   - Reduced resource allocations
+#   - Disabled non-essential components
+#   - Less frequent scraping intervals
+#
+# Usage:
+#   helm upgrade prometheus-stack prometheus-community/kube-prometheus-stack \
+#     -n monitoring -f values-cost-optimized.yaml \
+#     --set grafana.adminPassword=<YOUR_PASSWORD>
+
+# =============================================================================
+# PROMETHEUS CONFIGURATION (Lightweight)
+# =============================================================================
+prometheus:
+  ingress:
+    enabled: false
+
+  prometheusSpec:
+    # Scrape from all namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Reduced retention for cost savings
+    retention: 7d
+    retentionSize: "8GB"
+
+    # Minimal resources
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "300m"
+
+    # Keep existing PVC size (cannot shrink)
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp2
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+
+    # Less frequent evaluation for cost savings
+    evaluationInterval: 60s
+    scrapeInterval: 60s
+
+    # Spot instance tolerations
+    tolerations:
+      - key: "spot"
+        operator: "Equal"
+        value: "true"
+        effect: "PreferNoSchedule"
+
+    nodeSelector:
+      node-type: spot
+
+# =============================================================================
+# GRAFANA CONFIGURATION (Lightweight)
+# =============================================================================
+grafana:
+  enabled: true
+
+  adminUser: admin
+  adminPassword: ""  # Set via --set
+
+  # Keep existing PVC size (cannot shrink)
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClassName: gp3
+
+  # Minimal resources
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "25m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+  service:
+    type: ClusterIP
+
+  ingress:
+    enabled: false
+
+  # Essential dashboards only
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: "Asia/Kolkata"
+
+  # Disable sidecar for cost savings
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+
+  # Spot instance tolerations
+  tolerations:
+    - key: "spot"
+      operator: "Equal"
+      value: "true"
+      effect: "PreferNoSchedule"
+
+  nodeSelector:
+    node-type: spot
+
+# =============================================================================
+# ALERTMANAGER CONFIGURATION (Minimal)
+# =============================================================================
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    # Minimal resources
+    resources:
+      requests:
+        memory: "32Mi"
+        cpu: "10m"
+      limits:
+        memory: "64Mi"
+        cpu: "50m"
+
+    # Keep existing PVC size (cannot shrink)
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp2
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+    tolerations:
+      - key: "spot"
+        operator: "Equal"
+        value: "true"
+        effect: "PreferNoSchedule"
+
+    nodeSelector:
+      node-type: spot
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'null'
+    receivers:
+      - name: 'null'
+
+# =============================================================================
+# NODE EXPORTER (Essential for node metrics)
+# =============================================================================
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      memory: "16Mi"
+      cpu: "10m"
+    limits:
+      memory: "32Mi"
+      cpu: "50m"
+
+# =============================================================================
+# KUBE STATE METRICS (Essential for K8s metrics)
+# =============================================================================
+kubeStateMetrics:
+  enabled: true
+
+kube-state-metrics:
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "10m"
+    limits:
+      memory: "64Mi"
+      cpu: "50m"
+
+  tolerations:
+    - key: "spot"
+      operator: "Equal"
+      value: "true"
+      effect: "PreferNoSchedule"
+
+  nodeSelector:
+    node-type: spot
+
+# =============================================================================
+# PROMETHEUS OPERATOR (Required)
+# =============================================================================
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "25m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+  tolerations:
+    - key: "spot"
+      operator: "Equal"
+      value: "true"
+      effect: "PreferNoSchedule"
+
+  nodeSelector:
+    node-type: spot
+
+# =============================================================================
+# DISABLE NON-ESSENTIAL COMPONENTS
+# =============================================================================
+
+# Disable kubelet metrics (use node-exporter instead)
+kubelet:
+  enabled: true
+  serviceMonitor:
+    resource: false  # Disable resource metrics (reduces load)
+
+# Disable API server monitoring (not critical for app monitoring)
+kubeApiServer:
+  enabled: false
+
+# Disable etcd monitoring (not accessible in EKS)
+kubeEtcd:
+  enabled: false
+
+# Disable scheduler monitoring (not critical)
+kubeScheduler:
+  enabled: false
+
+# Disable controller manager monitoring (not critical)
+kubeControllerManager:
+  enabled: false
+
+# Disable proxy monitoring (not critical)
+kubeProxy:
+  enabled: false
+
+# Disable CoreDNS monitoring (not critical for app)
+coreDns:
+  enabled: false
+
+# =============================================================================
+# VENDURE-SPECIFIC ALERTS (Critical only)
+# =============================================================================
+additionalPrometheusRulesMap:
+  vendure-critical-rules:
+    groups:
+      - name: vendure.critical
+        rules:
+          - alert: VendurePodDown
+            expr: up{job=~".*vendure.*"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Vendure is DOWN"
+              description: "Vendure application is not responding for 2 minutes"
+
+          - alert: VendureOOMRisk
+            expr: |
+              container_memory_usage_bytes{namespace="vendure-production",container="vendure"}
+              / container_spec_memory_limit_bytes{namespace="vendure-production",container="vendure"} > 0.9
+            for: 3m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Vendure OOM Risk"
+              description: "Memory usage above 90% - immediate attention needed"
+
+          - alert: SpotInstanceTermination
+            expr: |
+              kube_node_labels{label_node_type="spot"}
+              and on(node) kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Spot instance may be terminating"
+              description: "A spot node is not ready - possible termination"
+
+# =============================================================================
+# RESOURCE SUMMARY
+# =============================================================================
+# Component          | CPU Request | Memory Request | Storage
+# -------------------|-------------|----------------|--------
+# Prometheus         | 100m        | 256Mi          | 10Gi
+# Grafana            | 25m         | 64Mi           | 2Gi
+# AlertManager       | 10m         | 32Mi           | 1Gi
+# Node Exporter      | 10m         | 16Mi           | -
+# Kube State Metrics | 10m         | 32Mi           | -
+# Prometheus Operator| 25m         | 64Mi           | -
+# -------------------|-------------|----------------|--------
+# TOTAL              | ~180m       | ~464Mi         | 13Gi
+# =============================================================================

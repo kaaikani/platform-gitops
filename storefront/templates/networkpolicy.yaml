@@ -1,0 +1,89 @@
+{{- if .Values.networkPolicies.enabled }}
+# =============================================================================
+# STOREFRONT NETWORK POLICY
+# =============================================================================
+# Allows specific traffic TO storefront pods
+# Security: Only allows traffic from ALB and system components
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "storefront.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "storefront.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "storefront.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: storefront
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from AWS ALB and same-namespace pods
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.storefront.service.targetPort }}
+    # Allow from kube-system namespace (ALB controller)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: {{ .Values.storefront.service.targetPort }}
+  egress:
+    # Allow DNS - CoreDNS standard label
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # CoreDNS alternative label
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # EKS CoreDNS label
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              eks.amazonaws.com/component: coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS (Vendure API, Hygraph CMS, Google OAuth, external services)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow HTTP (health checks, external services)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+{{- end }}

@@ -1,0 +1,30 @@
+{
+  "rules": [
+    {
+      "rulePriority": 1,
+      "description": "Delete untagged images after 1 day",
+      "selection": {
+        "tagStatus": "untagged",
+        "countType": "sinceImagePushed",
+        "countUnit": "days",
+        "countNumber": 1
+      },
+      "action": {
+        "type": "expire"
+      }
+    },
+    {
+      "rulePriority": 2,
+      "description": "Keep last 15 tagged images",
+      "selection": {
+        "tagStatus": "tagged",
+        "tagPrefixList": ["v", "latest", "prod", "devops"],
+        "countType": "imageCountMoreThan",
+        "countNumber": 15
+      },
+      "action": {
+        "type": "expire"
+      }
+    }
+  ]
+}

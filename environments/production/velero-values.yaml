@@ -1,0 +1,106 @@
+# =============================================================================
+# VELERO - KUBERNETES BACKUP SOLUTION
+# =============================================================================
+# Velero backs up Kubernetes resources and persistent volumes to S3
+#
+# Features:
+#   - Daily backups at 2 AM UTC
+#   - 14-day retention
+#   - EBS volume snapshots via AWS plugin
+#   - IRSA for secure S3/EC2 access
+#
+# AWS Resources (already created):
+#   - S3 Bucket: vendure-velero-backups-149536454380 (ap-south-1)
+#   - IAM Role: VeleroBackupRole (IRSA)
+#   - IAM Policy: VeleroBackupPolicy
+# =============================================================================
+
+# AWS plugin for S3 and EBS snapshots
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.13.2
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+# Velero configuration
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: vendure-velero-backups-149536454380
+      default: true
+      config:
+        region: ap-south-1
+
+  volumeSnapshotLocation:
+    - name: default
+      provider: aws
+      config:
+        region: ap-south-1
+
+  # Log level
+  logLevel: info
+
+# Backup schedule (daily at 2 AM UTC = 7:30 AM IST)
+schedules:
+  daily-backup:
+    schedule: "0 2 * * *"
+    template:
+      includedNamespaces:
+        - vendure-production
+        - monitoring
+        - argocd
+        - karpenter
+        - velero
+      includeClusterResources: true
+      snapshotVolumes: true
+      defaultVolumesToFsBackup: false
+      storageLocation: default
+      volumeSnapshotLocations:
+        - default
+      ttl: 336h
+
+# Do not deploy node agent (use EBS snapshots, not file-system backup)
+deployNodeAgent: false
+
+# IRSA - no secret needed
+credentials:
+  useSecret: false
+
+# Service account with IRSA for S3/EC2 access
+serviceAccount:
+  server:
+    create: true
+    name: velero-server
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::149536454380:role/VeleroBackupRole"
+
+# Resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Schedule on platform node
+nodeSelector:
+  dedicated: platform
+
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "platform"
+    effect: "NoSchedule"
+
+# Disable CRD upgrade hook - ArgoCD handles CRD sync via ServerSideApply
+upgradeCRDs: false
+
+# Metrics
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true

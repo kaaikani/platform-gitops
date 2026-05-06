@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "vendure-stack values schema",
+  "type": "object",
+  "properties": {
+    "global": {
+      "type": "object",
+      "properties": {
+        "namespace": { "type": "string", "default": "vendure" },
+        "environment": { "type": "string", "default": "production" },
+        "imageRegistry": { "type": "string", "default": "" }
+      }
+    },
+    "vendure": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "replicaCount": { "type": "integer", "default": 1 },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": { "type": "string", "default": "vendure-local" },
+            "tag": { "type": "string", "default": "latest" },
+            "pullPolicy": { "type": "string", "default": "IfNotPresent" }
+          }
+        },
+        "resources": { "type": "object" },
+        "service": { "type": "object" },
+        "env": { "type": "object" },
+        "database": { "type": "object" },
+        "redis": { "type": "object" }
+      }
+    },
+    "mysql": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "architecture": { "type": "string", "default": "standalone" },
+        "auth": { "type": "object" }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "architecture": { "type": "string", "default": "standalone" }
+      }
+    },
+    "prometheus": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true }
+      }
+    },
+    "grafana": { "type": "object" },
+    "ingress": { "type": "object" },
+    "secrets": { "type": "object" },
+    "serviceAccount": { "type": "object" },
+    "networkPolicies": { "type": "object" }
+  }
+}

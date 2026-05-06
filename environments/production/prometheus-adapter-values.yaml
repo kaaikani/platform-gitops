@@ -1,0 +1,138 @@
+# =============================================================================
+# PROMETHEUS ADAPTER - REQUEST-BASED HPA SCALING
+# =============================================================================
+# Exposes Prometheus metrics to the Kubernetes custom.metrics.k8s.io API
+# so HPA can scale based on request rate, latency, and queue depth
+#
+# Verify:
+#   kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1" | jq .
+#   kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/namespaces/vendure-production/pods/*/http_requests_per_second" | jq .
+# =============================================================================
+
+# Prometheus connection
+prometheus:
+  url: http://prometheus-stack-kube-prom-prometheus.monitoring.svc.cluster.local
+  port: 9090
+
+# Resource limits (minimal footprint for platform node)
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Schedule on platform node
+nodeSelector:
+  node-group: platform
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: platform
+    effect: NoSchedule
+
+# =============================================================================
+# CUSTOM METRICS RULES
+# =============================================================================
+# These rules translate Prometheus queries into Kubernetes custom metrics
+# that HPA can use for scaling decisions
+rules:
+  default: false
+
+  custom:
+    # =========================================================================
+    # HTTP Requests Per Second (per pod)
+    # =========================================================================
+    # HPA metric name: pods/http_requests_per_second
+    # Usage in HPA: type=Pods, metric.name=http_requests_per_second
+    - seriesQuery: 'http_requests_total{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)_total$"
+        as: "${1}_per_second"
+      metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+
+    # =========================================================================
+    # HTTP Request Duration P95 (per pod)
+    # =========================================================================
+    # HPA metric name: pods/http_request_duration_seconds_p95
+    # Usage in HPA: type=Pods, metric.name=http_request_duration_seconds_p95
+    - seriesQuery: 'http_request_duration_seconds_bucket{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)_bucket$"
+        as: "${1}_p95"
+      metricsQuery: 'histogram_quantile(0.95, sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (le, <<.GroupBy>>))'
+
+    # =========================================================================
+    # HTTP Request Duration P99 (per pod)
+    # =========================================================================
+    # HPA metric name: pods/http_request_duration_seconds_p99
+    - seriesQuery: 'http_request_duration_seconds_bucket{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)_bucket$"
+        as: "${1}_p99"
+      metricsQuery: 'histogram_quantile(0.99, sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (le, <<.GroupBy>>))'
+
+    # =========================================================================
+    # HTTP Error Rate (5xx per pod)
+    # =========================================================================
+    # HPA metric name: pods/http_error_rate
+    - seriesQuery: 'http_requests_total{namespace!="",pod!="",status=~"5.."}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)_total$"
+        as: "http_error_rate"
+      metricsQuery: |
+        sum(rate(http_requests_total{<<.LabelMatchers>>,status=~"5.."}[5m])) by (<<.GroupBy>>)
+        / sum(rate(http_requests_total{<<.LabelMatchers>>}[5m])) by (<<.GroupBy>>)
+
+    # =========================================================================
+    # Vendure: Active Connections (per pod)
+    # =========================================================================
+    # Node.js active handles for connection-based scaling
+    - seriesQuery: 'nodejs_active_handles_total{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)$"
+        as: "${1}"
+      metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+
+    # =========================================================================
+    # Vendure: Event Loop Lag (per pod)
+    # =========================================================================
+    # Node.js event loop lag for performance-based scaling
+    - seriesQuery: 'nodejs_eventloop_lag_seconds{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)$"
+        as: "${1}"
+      metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+
+  # Resource metrics (CPU/memory) are already provided by metrics-server
+  # No need to duplicate them here
+  resource: {}
+
+  # External metrics (for non-pod metrics like queue depth)
+  external: []

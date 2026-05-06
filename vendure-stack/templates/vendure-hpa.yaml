@@ -1,0 +1,39 @@
+{{- if and .Values.vendure.enabled .Values.vendure.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "vendure-stack.fullname" . }}-vendure
+  labels:
+    {{- include "vendure-stack.vendure.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "vendure-stack.fullname" . }}-vendure
+  minReplicas: {{ .Values.vendure.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.vendure.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.vendure.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.vendure.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.vendure.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.vendure.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.vendure.autoscaling.customMetrics }}
+    {{- toYaml .Values.vendure.autoscaling.customMetrics | nindent 4 }}
+    {{- end }}
+  {{- if .Values.vendure.autoscaling.behavior }}
+  behavior:
+    {{- toYaml .Values.vendure.autoscaling.behavior | nindent 4 }}
+  {{- end }}
+{{- end }}

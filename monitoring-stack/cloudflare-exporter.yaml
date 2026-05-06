@@ -1,0 +1,134 @@
+# =============================================================================
+# Cloudflare Prometheus Exporter
+# Exports Cloudflare zone analytics (bandwidth, requests, visitors, threats)
+# as Prometheus metrics for Grafana dashboards
+#
+# Prerequisites:
+#   1. Create Cloudflare API token with "Zone.Analytics:Read" permission
+#   2. Create K8s secret:
+#      kubectl create secret generic cloudflare-api-token \
+#        -n monitoring \
+#        --from-literal=api-token=<YOUR_CLOUDFLARE_API_TOKEN>
+#
+# Metrics exported:
+#   - cloudflare_zone_requests_total        (Total requests per zone)
+#   - cloudflare_zone_requests_status       (Requests by HTTP status)
+#   - cloudflare_zone_bandwidth_total       (Total bandwidth bytes)
+#   - cloudflare_zone_bandwidth_cached      (Cached bandwidth bytes)
+#   - cloudflare_zone_bandwidth_uncached    (Uncached bandwidth bytes)
+#   - cloudflare_zone_uniques_total         (Unique visitors)
+#   - cloudflare_zone_threats_total         (Total threats blocked)
+#
+# Zones monitored:
+#   - kaaikani.co.in        (Vendure API + Admin)
+#   - kaaikanistore.com     (Main storefront)
+#   - southmithai.com       (South Mithai storefront)
+#   - swad.kaaikani.co.in   (SwadKerala storefront - same zone as kaaikani.co.in)
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflare-exporter
+  template:
+    metadata:
+      labels:
+        app: cloudflare-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: cloudflare-exporter
+          image: lablabs/cloudflare_exporter:v0.0.17
+          ports:
+            - containerPort: 8080
+              name: metrics
+          env:
+            - name: CF_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-api-token
+                  key: api-token
+            # Comma-separated list of Cloudflare Zone IDs
+            # To find: Cloudflare Dashboard > Select Zone > Overview > scroll to API section > Zone ID
+            # REQUIRED: Replace with your actual zone IDs or exporter will export no metrics
+            - name: CF_ZONES
+              value: "REPLACE_WITH_KAAIKANI_ZONE_ID,REPLACE_WITH_KAAIKANISTORE_ZONE_ID,REPLACE_WITH_SOUTHMITHAI_ZONE_ID"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      # Schedule on platform node group (same as other monitoring components)
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "platform"
+          effect: "NoSchedule"
+      nodeSelector:
+        node-group: platform
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: metrics
+  selector:
+    app: cloudflare-exporter
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: cloudflare-exporter
+  endpoints:
+    - port: metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - monitoring

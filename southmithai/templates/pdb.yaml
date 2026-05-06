@@ -1,0 +1,19 @@
+{{- if and .Values.app.enabled .Values.app.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "southmithai.fullname" . }}
+  labels:
+    {{- include "southmithai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: southmithai
+spec:
+  {{- if .Values.app.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.app.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.app.podDisruptionBudget.maxUnavailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "southmithai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: southmithai
+{{- end }}

@@ -1,0 +1,173 @@
+# =============================================================================
+# LOKI STACK - PRODUCTION ENVIRONMENT
+# =============================================================================
+# Centralized logging with Loki + Promtail, S3 backend for durability
+#
+# AWS Resources:
+#   - S3 Bucket: vendure-loki-logs-149536454380 (30-day lifecycle)
+#   - IAM Role: LokiS3Role (IRSA)
+# =============================================================================
+
+loki:
+  enabled: true
+  replicas: 1
+
+  # IRSA for S3 access
+  serviceAccount:
+    create: true
+    name: loki
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::149536454380:role/LokiS3Role"
+
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: gp3
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  config:
+    auth_enabled: false
+
+    ingester:
+      chunk_idle_period: 3m
+      chunk_block_size: 262144
+      chunk_retain_period: 1m
+      max_transfer_retries: 0
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      max_entries_limit_per_query: 5000
+
+    schema_config:
+      configs:
+        # Old schema for existing local data
+        - from: "2020-10-24"
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+        # New schema for S3 storage (from today onwards)
+        - from: "2026-02-20"
+          store: boltdb-shipper
+          object_store: s3
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /data/loki/boltdb-shipper-active
+        cache_location: /data/loki/boltdb-shipper-cache
+        cache_ttl: 24h
+        shared_store: s3
+      aws:
+        s3: s3://ap-south-1/vendure-loki-logs-149536454380
+        region: ap-south-1
+        bucketnames: vendure-loki-logs-149536454380
+      filesystem:
+        directory: /data/loki/chunks
+
+    compactor:
+      working_directory: /data/loki/boltdb-shipper-compactor
+      shared_store: s3
+      retention_enabled: true
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h
+
+  # Schedule on app nodes (on-demand, no taints)
+  nodeSelector:
+    node-group: app
+
+  tolerations: []
+
+# Promtail
+promtail:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  config:
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    positions:
+      filename: /run/promtail/positions.yaml
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        pipeline_stages:
+          - cri: {}
+          - json:
+              expressions:
+                level: level
+                msg: msg
+                timestamp: timestamp
+          - labels:
+              level:
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            target_label: app
+          - action: drop
+            regex: ""
+            source_labels: [__meta_kubernetes_pod_annotation_kubernetes_io_config_seen]
+
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: dedicated
+      operator: Equal
+      value: platform
+      effect: NoSchedule
+
+# Disable components already running via prometheus-stack
+grafana:
+  enabled: false
+prometheus:
+  enabled: false
+filebeat:
+  enabled: false
+fluent-bit:
+  enabled: false
+logstash:
+  enabled: false

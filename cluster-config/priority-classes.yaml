@@ -1,0 +1,51 @@
+# =============================================================================
+# CLUSTER-WIDE PRIORITY CLASSES
+# =============================================================================
+# PriorityClasses control which pods survive when a node runs out of memory.
+# When the Linux OOM killer fires, pods with LOWER priority are evicted first.
+#
+# Order (highest survives longest):
+#   system-node-critical (2000001000) — kubelet, kube-proxy         [built-in]
+#   system-cluster-critical (2000000000) — CoreDNS, metrics-server  [built-in]
+#   monitoring-critical (1000000)     — Prometheus, Grafana, Loki    [ours]
+#   vendure-critical (500000)        — Vendure server + worker       [ours]
+#   <default> (0)                     — ArgoCD, Kubecost, etc.       [default]
+#
+# Why this matters: During a load test, vendure fills its memory limit and
+# triggers node-level OOM pressure. Without PriorityClass, the kernel kills
+# Prometheus/Grafana (large processes) even though they're the tools you need
+# to diagnose why vendure crashed.
+# =============================================================================
+
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: monitoring-critical
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/component: cluster-config
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >
+  High priority for observability stack (Prometheus, Grafana, Loki, Tempo,
+  AlertManager). These components must survive application pod OOM events so
+  that engineers can diagnose failures. Any application pod (value=0) will be
+  evicted before these components under node memory pressure.
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: vendure-critical
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/component: cluster-config
+value: 500000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >
+  Priority for Vendure application pods (server + worker). Higher than default
+  (0) so Vendure survives over non-essential workloads (Kubecost, ArgoCD dashboard)
+  during resource pressure. Lower than monitoring-critical (1000000) so monitoring
+  always survives to diagnose Vendure issues.

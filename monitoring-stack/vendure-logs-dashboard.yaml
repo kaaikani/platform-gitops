@@ -1,0 +1,238 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vendure-logs-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Vendure"
+data:
+  vendure-logs.json: |
+    {
+      "title": "Vendure Logs",
+      "description": "Live Loki logs for Vendure server and worker — errors, warnings, info",
+      "uid": "vendure-logs",
+      "tags": ["vendure", "logs", "loki"],
+      "timezone": "Asia/Kolkata",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "editable": true,
+      "graphTooltip": 1,
+      "templating": {
+        "list": [
+          {
+            "name": "loki_ds",
+            "type": "datasource",
+            "query": "loki",
+            "hide": 0,
+            "includeAll": false,
+            "multi": false,
+            "current": { "text": "Loki", "value": "loki" }
+          },
+          {
+            "name": "container",
+            "type": "query",
+            "datasource": { "type": "loki", "uid": "${loki_ds}" },
+            "query": "label_values({namespace=\"vendure-production\"}, container)",
+            "hide": 0,
+            "includeAll": true,
+            "multi": true,
+            "current": {},
+            "refresh": 2
+          },
+          {
+            "name": "level",
+            "type": "custom",
+            "hide": 0,
+            "includeAll": true,
+            "multi": true,
+            "options": [
+              { "text": "error", "value": "error" },
+              { "text": "warn",  "value": "warn"  },
+              { "text": "info",  "value": "info"  }
+            ],
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Log Volume",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${loki_ds}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "fillOpacity": 20, "lineWidth": 1, "stacking": { "mode": "normal" } }
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "warn"  }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "info"  }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+            ]
+          },
+          "gridPos": { "h": 6, "w": 24, "x": 0, "y": 1 },
+          "id": 1,
+          "options": {
+            "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right" },
+            "tooltip": { "mode": "multi" }
+          },
+          "title": "Log rate by level (vendure-production)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${loki_ds}" },
+              "expr": "sum by (level) (rate({namespace=\"vendure-production\", container=~\"$container\"}[5m]))",
+              "legendFormat": "{{level}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+          "id": 101,
+          "title": "Vendure Server Logs",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${loki_ds}" },
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 8 },
+          "id": 2,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "Vendure Server — All Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${loki_ds}" },
+              "expr": "{namespace=\"vendure-production\", container=\"vendure\"}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${loki_ds}" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+          "id": 3,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "Vendure Server — Errors Only",
+          "type": "logs",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${loki_ds}" },
+              "expr": "{namespace=\"vendure-production\", container=\"vendure\"} |= `error` | logfmt | level=~`error|ERROR`",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+          "id": 102,
+          "title": "Vendure Worker Logs",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${loki_ds}" },
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 31 },
+          "id": 4,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "Vendure Worker — All Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${loki_ds}" },
+              "expr": "{namespace=\"vendure-production\", app=\"vendure-worker\"}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${loki_ds}" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 43 },
+          "id": 5,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "Vendure Worker — Errors Only",
+          "type": "logs",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${loki_ds}" },
+              "expr": "{namespace=\"vendure-production\", app=\"vendure-worker\"} |= `error`",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 },
+          "id": 103,
+          "title": "Kubernetes Events",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${loki_ds}" },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 54 },
+          "id": 6,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "Pod Restarts / OOMKill / BackoffLimit",
+          "type": "logs",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${loki_ds}" },
+              "expr": "{namespace=\"vendure-production\"} |= `OOMKill` or {namespace=\"vendure-production\"} |= `BackoffLimitExceeded` or {namespace=\"vendure-production\"} |= `CrashLoopBackOff`",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }

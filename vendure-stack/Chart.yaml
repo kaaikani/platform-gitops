@@ -1,0 +1,33 @@
+apiVersion: v2
+name: vendure-stack
+description: A Helm chart for deploying Vendure e-commerce platform with MySQL, Redis, and Prometheus monitoring
+
+type: application
+version: 1.0.0
+appVersion: "3.1.0"
+
+keywords:
+  - vendure
+  - ecommerce
+  - nodejs
+  - mysql
+  - redis
+  - prometheus
+
+maintainers:
+  - name: DevOps Team
+    email: devops@example.com
+
+dependencies:
+  - name: mysql
+    version: "9.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: mysql.enabled
+  - name: redis
+    version: "18.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+  - name: prometheus
+    version: "25.x.x"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
