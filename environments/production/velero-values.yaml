@@ -86,16 +86,6 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-# Schedule on platform node
-nodeSelector:
-  dedicated: platform
-
-tolerations:
-  - key: "dedicated"
-    operator: "Equal"
-    value: "platform"
-    effect: "NoSchedule"
-
 # Disable CRD upgrade hook - ArgoCD handles CRD sync via ServerSideApply
 upgradeCRDs: false
 

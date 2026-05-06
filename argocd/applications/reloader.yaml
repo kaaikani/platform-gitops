@@ -35,13 +35,6 @@ spec:
                 limits:
                   cpu: 100m
                   memory: 128Mi
-              nodeSelector:
-                dedicated: platform
-              tolerations:
-                - key: "dedicated"
-                  operator: "Equal"
-                  value: "platform"
-                  effect: "NoSchedule"
 
   destination:
     server: https://kubernetes.default.svc
