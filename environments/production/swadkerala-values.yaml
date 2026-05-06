@@ -42,7 +42,7 @@ storefront:
     previewReplicaCount: 1
   image:
     repository: swadkerala
-    tag: "v0.0.15"
+    tag: "v0.0.16"
     pullPolicy: Always
   # Resource sizing for Remix SSR (Node.js)
   resources:
