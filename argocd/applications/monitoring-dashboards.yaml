@@ -28,7 +28,7 @@ spec:
 
   source:
     repoURL: https://github.com/kaaikani/platform-gitops.git
-    targetRevision: master
+    targetRevision: main
     path: monitoring-stack
     directory:
       recurse: false

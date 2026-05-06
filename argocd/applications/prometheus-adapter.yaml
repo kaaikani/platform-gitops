@@ -29,7 +29,7 @@ spec:
         valueFiles:
           - $values/environments/production/prometheus-adapter-values.yaml
     - repoURL: https://github.com/kaaikani/platform-gitops.git
-      targetRevision: master
+      targetRevision: main
       ref: values
 
   destination:

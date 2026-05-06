@@ -32,7 +32,7 @@ spec:
         valueFiles:
           - $values/environments/production/mysql-exporter-values.yaml
     - repoURL: https://github.com/kaaikani/platform-gitops.git
-      targetRevision: master
+      targetRevision: main
       ref: values
 
   destination:

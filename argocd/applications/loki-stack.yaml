@@ -28,7 +28,7 @@ spec:
         valueFiles:
           - $values/environments/production/loki-values-cost-optimized.yaml
     - repoURL: https://github.com/kaaikani/platform-gitops.git
-      targetRevision: master
+      targetRevision: main
       ref: values
 
   destination:
