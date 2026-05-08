@@ -10,7 +10,6 @@ global:
   namespace: vendure-client-production
   environment: production
   imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
-
 namespace:
   create: false # use --create-namespace via ArgoCD syncOption
   name: vendure-client-production
@@ -18,7 +17,6 @@ namespace:
     enforce: restricted
     audit: restricted
     warn: restricted
-
 vendure:
   enabled: true
   replicaCount: 1
@@ -29,7 +27,7 @@ vendure:
       maxUnavailable: 0
   image:
     repository: vendure-client
-    tag: "devops-v1.0.0"
+    tag: "devops-v1.0.2"
     pullPolicy: Always
   # Shrunk for t3a.small (2 GiB total, ~1.2 GiB usable after kubelet+system).
   # Limit kept under 1 GiB so a 2nd pod can transiently fit during rolling
@@ -45,8 +43,8 @@ vendure:
   service:
     type: ClusterIP
     ports:
-      server: { port: 80 }
-      admin: { port: 3002 }
+      server: {port: 80}
+      admin: {port: 3002}
   env:
     NODE_ENV: production
     APP_ENV: production
@@ -117,14 +115,12 @@ vendure:
     preStop:
       exec:
         command: ["/bin/sh", "-c", "sleep 15"]
-
 # =============================================================================
 # WORKER — disabled. Low-traffic client; inline jobs are fine and saves ~400Mi.
 # Re-enable later if email queue / search indexing become a bottleneck.
 # =============================================================================
 worker:
   enabled: false
-
 # =============================================================================
 # DATABASE — shared RDS, separate database 'vendure_client'
 # Connection details (host, dbname, password) live in AWS Secrets Manager
@@ -140,7 +136,6 @@ externalDatabase:
   username: admin
   existingSecret: "vendure-secrets"
   existingSecretPasswordKey: "DB_PASSWORD"
-
 # =============================================================================
 # REDIS — shared Redis Cloud, separate ACL
 # =============================================================================
@@ -153,7 +148,6 @@ externalRedis:
   username: "default"
   existingSecret: "vendure-secrets"
   existingSecretPasswordKey: "REDIS_PASSWORD"
-
 # =============================================================================
 # S3 ASSETS — separate path under shared CDN bucket
 # =============================================================================
@@ -166,7 +160,6 @@ s3:
   existingSecret: "vendure-secrets"
   accessKeyIdKey: "AWS_ACCESS_KEY_ID"
   secretAccessKeyKey: "AWS_SECRET_ACCESS_KEY"
-
 # =============================================================================
 # MONITORING — picks up automatically via the shared prometheus-stack
 # =============================================================================
@@ -181,7 +174,6 @@ serviceMonitor:
   scrapeTimeout: 10s
   labels:
     release: prometheus-stack
-
 prometheusRule:
   enabled: true
   namespace: monitoring
@@ -219,7 +211,6 @@ prometheusRule:
       annotations:
         summary: "vendure-client memory >90% of 900Mi limit"
         description: "Likely needs resource bump or workload audit"
-
 # =============================================================================
 # INGRESS — shared ALB (group.name: vendure-shared)
 # Routes:
@@ -254,16 +245,14 @@ ingress:
           pathType: Prefix
           service: vendure
           port: 80
-
 # =============================================================================
 # NETWORK POLICIES
 # =============================================================================
 networkPolicies:
   enabled: true
   allowedNamespaces:
-    # Add the storefront namespace here once it exists, e.g.:
-    # - vendure-client-storefront-production
-
+  # Add the storefront namespace here once it exists, e.g.:
+  # - vendure-client-storefront-production
 # =============================================================================
 # SECRETS — External Secrets Operator pulls from AWS Secrets Manager
 #
@@ -289,7 +278,6 @@ networkPolicies:
 secrets:
   create: false
   existingSecret: "vendure-secrets"
-
 externalSecrets:
   enabled: true
   createSecretStore: false
@@ -301,12 +289,10 @@ externalSecrets:
     awsS3: "vendure-client/prod/all"
     smtps: "vendure-client/prod/all"
     integrations: "vendure-client/prod/all"
-
 serviceAccount:
   create: true
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/vendure-client-production-role
-
 # =============================================================================
 # RBAC
 # =============================================================================
@@ -317,7 +303,6 @@ rbac:
     - devops@kk
   readOnly:
     - admin@kaaikani.co.in
-
 # Lower priority than vendure-prod — if monitoring or vendure-prod need to
 # evict pods under pressure, this client gets evicted first.
 priorityClassName: ""
