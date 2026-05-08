@@ -5,6 +5,7 @@ resources:
   - ec2nodeclass.yaml
   - nodepool-application.yaml
   - nodepool-storefront.yaml
+  - nodepool-vendure-clients.yaml
   - nodepool-monitoring.yaml
   - ec2nodeclass-test.yaml
   - nodepool-application-test.yaml

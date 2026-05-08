@@ -1,0 +1,64 @@
+# =============================================================================
+# ArgoCD Application — Vendure Client (prabhasaaridesigns.com) Production
+# =============================================================================
+# Low-traffic Vendure backend on t3a.small via 'vendure-clients' NodePool.
+# Image tag is bumped by the client repo's GitHub Actions workflow on each
+# push to main (CI commits the new tag to this repo's main branch).
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vendure-client-production
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    environment: production
+    app: vendure-client
+    tier: low-traffic
+  # Image Updater intentionally NOT enabled — the client repo's workflow does
+  # the values bump itself (matches existing vendure-production pattern).
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: vendure-stack
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-production.yaml
+        - ../environments/production/vendure-client-values.yaml
+      releaseName: vendure-client-production
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vendure-client-production
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

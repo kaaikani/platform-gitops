@@ -1,0 +1,323 @@
+# =============================================================================
+# VENDURE CLIENT (prabhasaaridesigns.com) — PRODUCTION VALUES
+# =============================================================================
+# Tier: low-traffic, cost-optimized (~$15-20/month target)
+# Node: t3a.small via Karpenter NodePool 'vendure-clients'
+# Infra: SHARED ALB, SHARED RDS (separate DB), SHARED Redis (separate ACL)
+# =============================================================================
+
+global:
+  namespace: vendure-client-production
+  environment: production
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+
+namespace:
+  create: false # use --create-namespace via ArgoCD syncOption
+  name: vendure-client-production
+  podSecurity:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+
+vendure:
+  enabled: true
+  replicaCount: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  image:
+    repository: vendure-client
+    tag: "devops-v1.0.0"
+    pullPolicy: Always
+  # Shrunk for t3a.small (2 GiB total, ~1.2 GiB usable after kubelet+system).
+  # Limit kept under 1 GiB so a 2nd pod can transiently fit during rolling
+  # update (maxSurge=1) on the same node.
+  resources:
+    requests:
+      memory: "384Mi"
+      cpu: "200m"
+    limits:
+      memory: "900Mi"
+      cpu: "1500m" # burstable — t3a credits cover short spikes
+  maxOldSpaceSize: 700 # ~75% of 900Mi limit
+  service:
+    type: ClusterIP
+    ports:
+      server: { port: 80 }
+      admin: { port: 3002 }
+  env:
+    NODE_ENV: production
+    APP_ENV: production
+    SUPERADMIN_USERNAME: superadmin
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+    OTEL_SERVICE_NAME: "vendure-client"
+    OTEL_RESOURCE_ATTRIBUTES: "service.name=vendure-client,deployment.environment=production"
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/metrics"
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 10
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+  startupProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 60
+  # HPA: scales only on real load. 200% of 200m request = 400m sustained.
+  # Scale-up spawns a 2nd t3a.small via Karpenter. Accepts brief 2-node cost.
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 2
+    targetCPUUtilizationPercentage: 200
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 60
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 600 # 10 min — hold the extra node only if load persists
+        policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 120
+  # PDB at minAvailable=1 with replicaCount=1 would block voluntary evictions.
+  # Disable for single-replica low-traffic client.
+  podDisruptionBudget:
+    enabled: false
+  nodeSelector:
+    node-group: vendure-clients
+  tolerations: []
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: false
+  terminationGracePeriodSeconds: 60
+  enableGracefulShutdown: true
+  lifecycle:
+    preStop:
+      exec:
+        command: ["/bin/sh", "-c", "sleep 15"]
+
+# =============================================================================
+# WORKER — disabled. Low-traffic client; inline jobs are fine and saves ~400Mi.
+# Re-enable later if email queue / search indexing become a bottleneck.
+# =============================================================================
+worker:
+  enabled: false
+
+# =============================================================================
+# DATABASE — shared RDS, separate database 'vendure_client'
+# Connection details (host, dbname, password) live in AWS Secrets Manager
+# at vendure-client/prod/database.
+# =============================================================================
+mysql:
+  enabled: false
+externalDatabase:
+  enabled: true
+  host: ""
+  port: 3306
+  database: ""
+  username: admin
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "DB_PASSWORD"
+
+# =============================================================================
+# REDIS — shared Redis Cloud, separate ACL
+# =============================================================================
+redis:
+  enabled: false
+externalRedis:
+  enabled: true
+  host: ""
+  port: 11488
+  username: "default"
+  existingSecret: "vendure-secrets"
+  existingSecretPasswordKey: "REDIS_PASSWORD"
+
+# =============================================================================
+# S3 ASSETS — separate path under shared CDN bucket
+# =============================================================================
+s3:
+  enabled: true
+  bucket: "avsecomhub-clients-s3-images"
+  region: "ap-south-1"
+  assetPath: "vendure-client/" # scopes this client to its own prefix inside the shared bucket
+  useIRSA: false
+  existingSecret: "vendure-secrets"
+  accessKeyIdKey: "AWS_ACCESS_KEY_ID"
+  secretAccessKeyKey: "AWS_SECRET_ACCESS_KEY"
+
+# =============================================================================
+# MONITORING — picks up automatically via the shared prometheus-stack
+# =============================================================================
+prometheus:
+  enabled: false
+grafana:
+  enabled: false
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  interval: 30s # less frequent than vendure-prod (low-traffic, save scrape cost)
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus-stack
+
+prometheusRule:
+  enabled: true
+  namespace: monitoring
+  labels:
+    release: prometheus-stack
+  rules:
+    - alert: VendureClientDown
+      expr: up{job=~".*vendure.*", namespace="vendure-client-production"} == 0
+      for: 2m
+      labels:
+        severity: warning # not critical — low-traffic client
+        environment: production
+        client: vendure-client
+      annotations:
+        summary: "Vendure (prabhasaaridesigns.com) is DOWN"
+        description: "/health endpoint not responding for 2 min"
+    - alert: VendureClientHighErrorRate
+      expr: rate(http_requests_total{namespace="vendure-client-production",status=~"5.."}[5m]) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        environment: production
+        client: vendure-client
+      annotations:
+        summary: "5xx error rate above 5% for 5 min on vendure-client"
+    - alert: VendureClientOOMRisk
+      expr: |
+        container_memory_usage_bytes{namespace="vendure-client-production",container="vendure"}
+        / container_spec_memory_limit_bytes{namespace="vendure-client-production",container="vendure"} > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        environment: production
+        client: vendure-client
+      annotations:
+        summary: "vendure-client memory >90% of 900Mi limit"
+        description: "Likely needs resource bump or workload audit"
+
+# =============================================================================
+# INGRESS — shared ALB (group.name: vendure-shared)
+# Routes:
+#   prabhasaaridesigns.com/         → vendure API (port 80)  — covers /health
+#   prabhasaaridesigns.com/admin    → Admin UI (port 3002)   — auto via adminUi.enabled
+# =============================================================================
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/group.name: vendure-shared
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/b0241105-6298-4092-8733-693a9e69e993"
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "10"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/tags: Environment=production,Client=vendure-client
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+  adminUi:
+    enabled: true
+  hosts:
+    - host: prabhasaaridesigns.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 80
+
+# =============================================================================
+# NETWORK POLICIES
+# =============================================================================
+networkPolicies:
+  enabled: true
+  allowedNamespaces:
+    # Add the storefront namespace here once it exists, e.g.:
+    # - vendure-client-storefront-production
+
+# =============================================================================
+# SECRETS — External Secrets Operator pulls from AWS Secrets Manager
+#
+# This client uses ONE consolidated secret in AWS Secrets Manager:
+#   Name:  vendure-client/prod/all
+#
+# Required keys inside that single secret (all flat key/value, JSON):
+#   Database (RDS):   DB_HOST, DB_PORT, DB_NAME, DB_USERNAME, DB_PASSWORD
+#   Redis:            REDIS_HOST, REDIS_PORT, REDIS_USERNAME, REDIS_PASSWORD
+#   S3 (assets):      AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION,
+#                     S3_ENDPOINT, S3_BUCKET
+#   App:              COOKIE_SECRET, SUPERADMIN_USERNAME, SUPERADMIN_PASSWORD,
+#                     TOTP_SALT
+#   Integrations:     GOOGLE_CLIENT_ID, RAZORPAY_WEBHOOK_SECRET
+#                     (Apple OAuth IDs come from env block above, not secret)
+#   SES SMTP:         SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD,
+#                     EMAIL_FROM
+#
+# All 5 awsSecrets paths point at the same secret — ExternalSecrets extracts
+# from it 5x and merges all keys into the K8s Secret 'vendure-secrets'.
+# (Slightly redundant but works without modifying the chart.)
+# =============================================================================
+secrets:
+  create: false
+  existingSecret: "vendure-secrets"
+
+externalSecrets:
+  enabled: true
+  createSecretStore: false
+  clusterSecretStore: aws-secrets-manager
+  refreshInterval: 5m # less frequent than vendure-prod (1m) — save AWS API cost
+  awsSecrets:
+    database: "vendure-client/prod/all"
+    redis: "vendure-client/prod/all"
+    awsS3: "vendure-client/prod/all"
+    smtps: "vendure-client/prod/all"
+    integrations: "vendure-client/prod/all"
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/vendure-client-production-role
+
+# =============================================================================
+# RBAC
+# =============================================================================
+rbac:
+  enabled: true
+  developers: []
+  devops:
+    - devops@kk
+  readOnly:
+    - admin@kaaikani.co.in
+
+# Lower priority than vendure-prod — if monitoring or vendure-prod need to
+# evict pods under pressure, this client gets evicted first.
+priorityClassName: ""

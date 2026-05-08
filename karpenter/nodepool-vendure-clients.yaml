@@ -1,0 +1,64 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: vendure-clients
+spec:
+  template:
+    metadata:
+      labels:
+        node-type: on-demand
+        workload: vendure
+        cost-tier: low-traffic
+        node-group: vendure-clients
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+        # t3a.small: 2 vCPU / 2 GiB, burstable AMD — cheapest viable size for
+        # low-traffic Vendure clients. Burst credits are plentiful at <1 RPS.
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["t3a"]
+
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["small"]
+
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["2"]
+
+        # Same AZ as RDS to avoid cross-AZ DB latency
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["ap-south-1a"]
+
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+
+      expireAfter: 720h
+
+  # Cap at 2 nodes (HPA max=2 spike) — prevents runaway scaling on a budget pool
+  limits:
+    cpu: 4
+    memory: 4Gi
+
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+
+  # Lower than 'application' (100) and 'storefront' (90) so vendure-prod pods
+  # never accidentally land here
+  weight: 80
