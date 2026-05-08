@@ -278,6 +278,12 @@ s3:
   enabled: true
   bucket: "cdn.kaaikani.co.in"
   region: "ap-south-1"
+  # Pin to global endpoint to preserve pre-existing behavior. The chart now
+  # reads S3_ENDPOINT from this value instead of the AWS Secret. Without this
+  # line the chart would compute the regional endpoint
+  # (https://s3.ap-south-1.amazonaws.com) which technically works but changes
+  # production behavior.
+  endpoint: "https://s3.amazonaws.com"
   assetPath: "assets/" # Production assets path
   # SECURITY: Use IRSA (IAM Roles for Service Accounts) instead of access keys
   useIRSA: false # Reverted — Vendure S3 plugin code passes explicit credentials object to AWS SDK, which fails with IRSA. To enable IRSA, modify Vendure S3AssetStorageStrategy config to omit the credentials block and let SDK auto-discover.
