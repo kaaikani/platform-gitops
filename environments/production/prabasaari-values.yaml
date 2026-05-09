@@ -175,7 +175,10 @@ ingress:
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "10"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
-    alb.ingress.kubernetes.io/tags: Environment=production,Project=prabasaari
+    # `Project` tag intentionally omitted — argocd-server-ingress in this same
+    # 'vendure-shared' group already sets Project=argocd, and ALB requires all
+    # group members to agree on tag values. Keep only Environment.
+    alb.ingress.kubernetes.io/tags: Environment=production
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
   hosts:
     - host: prabhasaaridesigns.com
