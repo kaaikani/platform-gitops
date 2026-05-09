@@ -242,12 +242,21 @@ ingress:
     alb.ingress.kubernetes.io/tags: Environment=production,Client=vendure-client
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+  # Admin UI is served by the same Node process on port 80 at /admin —
+  # not on a separate port 3002. The chart's separate admin ingress
+  # (adminUi.enabled) targets port 3002 which isn't actually listening,
+  # so we disable it and add /admin as a path on the main ingress instead.
+  # Same pattern as vendure-production for kaaikani.co.in.
   adminUi:
-    enabled: true
+    enabled: false
   hosts:
     - host: prabhasaaridesigns.com
       paths:
         - path: /shop-api
+          pathType: Prefix
+          service: vendure
+          port: 80
+        - path: /admin
           pathType: Prefix
           service: vendure
           port: 80
