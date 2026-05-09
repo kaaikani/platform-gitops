@@ -146,6 +146,9 @@ ingress:
   annotations:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/group.name: vendure-shared
+    # Catch-all '/' rule — must be evaluated AFTER vendure-client's specific
+    # paths (/shop-api, /assets, /health, /admin) which use order 100.
+    alb.ingress.kubernetes.io/group.order: "1000"
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
