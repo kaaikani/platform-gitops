@@ -256,6 +256,10 @@ ingress:
           pathType: Prefix
           service: vendure
           port: 80
+        - path: /admin-api
+          pathType: Prefix
+          service: vendure
+          port: 80
         - path: /admin
           pathType: Prefix
           service: vendure
