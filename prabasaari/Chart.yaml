@@ -1,0 +1,6 @@
+apiVersion: v2
+name: prabasaari
+description: Helm chart for Prabasaari (prabhasaaridesigns.com) Next.js storefront
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

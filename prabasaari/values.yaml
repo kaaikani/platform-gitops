@@ -1,0 +1,126 @@
+# =============================================================================
+# PRABASAARI HELM CHART - DEFAULT VALUES
+# =============================================================================
+# Next.js storefront for prabhasaaridesigns.com
+# Vendure backend (shop-api/admin) is served by the vendure-client chart.
+# =============================================================================
+
+global:
+  namespace: prabasaari-production
+  environment: production
+  imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
+
+namespace:
+  create: false
+  name: prabasaari-production
+  podSecurity:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: prabasaaridesigns
+    tag: "prabas-v0.1.0"
+    pullPolicy: Always
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "150m"
+    limits:
+      memory: "768Mi"
+      cpu: "500m"
+
+  service:
+    type: ClusterIP
+    port: 80
+    # Matches Dockerfile EXPOSE 8004 / PORT=8004
+    targetPort: 8004
+
+  # Non-sensitive env. No AWS secrets — values flow straight from this map
+  # into the Deployment via a `range` over .Values.app.env.
+  env:
+    NODE_ENV: production
+    PORT: "8004"
+    HOSTNAME: "0.0.0.0"
+    NEXT_TELEMETRY_DISABLED: "1"
+    VENDURE_API_URL: "https://prabhasaaridesigns.com/shop-api"
+    GOOGLE_CLIENT_ID: "349081914352-nni3vvjh8kehopt5intedk2vohsmkq48.apps.googleusercontent.com"
+    CHANNEL_TOKEN: "prabas-aari"
+
+  podAnnotations:
+    reloader.stakater.com/auto: "true"
+
+  securityContext:
+    # Dockerfile creates user `nextjs` with uid 1001
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+    readOnlyRootFilesystem: false
+
+  terminationGracePeriodSeconds: 30
+  dnsPolicy: ClusterFirst
+
+  livenessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  startupProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 75
+
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 1
+
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+
+# =============================================================================
+# INGRESS
+# =============================================================================
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}
+  hosts: []
+
+# =============================================================================
+# NETWORK POLICIES
+# =============================================================================
+networkPolicies:
+  enabled: false
+
+priorityClassName: ""

@@ -213,9 +213,12 @@ prometheusRule:
         description: "Likely needs resource bump or workload audit"
 # =============================================================================
 # INGRESS — shared ALB (group.name: vendure-shared)
-# Routes:
-#   prabhasaaridesigns.com/         → vendure API (port 80)  — covers /health
+# Routes (ALB picks the most specific path first):
+#   prabhasaaridesigns.com/shop-api → vendure API (port 80)
+#   prabhasaaridesigns.com/assets   → vendure API (port 80)  — Vendure assets
+#   prabhasaaridesigns.com/health   → vendure API (port 80)  — health probe
 #   prabhasaaridesigns.com/admin    → Admin UI (port 3002)   — auto via adminUi.enabled
+#   prabhasaaridesigns.com/         → prabasaari storefront (separate ingress)
 # =============================================================================
 ingress:
   enabled: true
@@ -241,7 +244,15 @@ ingress:
   hosts:
     - host: prabhasaaridesigns.com
       paths:
-        - path: /
+        - path: /shop-api
+          pathType: Prefix
+          service: vendure
+          port: 80
+        - path: /assets
+          pathType: Prefix
+          service: vendure
+          port: 80
+        - path: /health
           pathType: Prefix
           service: vendure
           port: 80

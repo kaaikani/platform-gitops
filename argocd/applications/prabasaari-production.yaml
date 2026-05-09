@@ -1,0 +1,67 @@
+# =============================================================================
+# ArgoCD Application — Prabasaari Production
+# =============================================================================
+# Manages the Prabasaari Next.js storefront (prabhasaaridesigns.com).
+# Image tag is auto-bumped by ArgoCD Image Updater when the client repo's
+# CI pushes a new tag matching ^prabas-v[0-9]+\.[0-9]+\.[0-9]+$ to ECR.
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prabasaari-production
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    environment: production
+    app: prabasaari
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: prabasaari=149536454380.dkr.ecr.ap-south-1.amazonaws.com/prabasaaridesigns
+    argocd-image-updater.argoproj.io/prabasaari.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/prabasaari.allow-tags: regexp:^prabas-v[0-9]+\.[0-9]+\.[0-9]+$
+    argocd-image-updater.argoproj.io/prabasaari.helm.image-tag: app.image.tag
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-image-updater-secret
+    argocd-image-updater.argoproj.io/git-branch: main
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: prabasaari
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../environments/production/prabasaari-values.yaml
+      releaseName: prabasaari-production
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prabasaari-production
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

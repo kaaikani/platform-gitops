@@ -50,10 +50,12 @@ spec:
 
       expireAfter: 720h
 
-  # Cap at 2 nodes (HPA max=2 spike) — prevents runaway scaling on a budget pool
+  # Cap at 3 nodes — covers co-tenancy of vendure-client (max=2) and the
+  # prabasaari storefront (max=2) plus transient rolling-update headroom.
+  # Each t3a.small = 2 vCPU / 2 GiB; 3 nodes = 6 vCPU / 6 GiB.
   limits:
-    cpu: 4
-    memory: 4Gi
+    cpu: 6
+    memory: 6Gi
 
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
