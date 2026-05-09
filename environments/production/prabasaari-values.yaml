@@ -17,7 +17,6 @@ global:
   namespace: prabasaari-production
   environment: production
   imageRegistry: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/"
-
 namespace:
   create: false # ArgoCD --create-namespace handles it
   name: prabasaari-production
@@ -25,19 +24,16 @@ namespace:
     enforce: restricted
     audit: restricted
     warn: restricted
-
 # =============================================================================
 # APPLICATION
 # =============================================================================
 app:
   enabled: true
   replicaCount: 1
-
   image:
     repository: prabasaaridesigns
-    tag: "prabas-v0.1.0"
+    tag: "prabas-v0.0.2"
     pullPolicy: Always
-
   # Sized for t3a.small co-tenancy with vendure-client (384Mi req / 900Mi limit).
   # Both pods request ~584Mi total — fits inside ~1.4 GiB allocatable on a
   # t3a.small. Limit is burstable; t3a credits cover short SSR spikes.
@@ -48,12 +44,10 @@ app:
     limits:
       memory: "600Mi"
       cpu: "1000m"
-
   service:
     type: ClusterIP
     port: 80
     targetPort: 8004
-
   # Plain env (no AWS Secrets Manager). VENDURE_API_URL points at the public
   # domain since SSR + browser both call the same Vendure shop-api endpoint.
   env:
@@ -64,19 +58,15 @@ app:
     VENDURE_API_URL: "https://prabhasaaridesigns.com/shop-api"
     GOOGLE_CLIENT_ID: "349081914352-nni3vvjh8kehopt5intedk2vohsmkq48.apps.googleusercontent.com"
     CHANNEL_TOKEN: "prabas-aari"
-
   podAnnotations:
     reloader.stakater.com/auto: "true"
-
   securityContext:
     runAsNonRoot: true
     runAsUser: 1001
     fsGroup: 1001
     readOnlyRootFilesystem: false
-
   terminationGracePeriodSeconds: 30
   dnsPolicy: ClusterFirst
-
   livenessProbe:
     enabled: true
     path: /
@@ -84,7 +74,6 @@ app:
     periodSeconds: 30
     timeoutSeconds: 10
     failureThreshold: 5
-
   readinessProbe:
     enabled: true
     path: /
@@ -92,7 +81,6 @@ app:
     periodSeconds: 15
     timeoutSeconds: 10
     failureThreshold: 5
-
   startupProbe:
     enabled: true
     path: /
@@ -100,7 +88,6 @@ app:
     periodSeconds: 10
     timeoutSeconds: 10
     failureThreshold: 30
-
   # HPA: scales only on real load. 150% of 100m request = 150m sustained
   # before adding a 2nd pod (which forces a 2nd t3a.small via Karpenter).
   # Mirrors the vendure-client philosophy (it uses 200%); slightly more
@@ -124,20 +111,16 @@ app:
           - type: Pods
             value: 1
             periodSeconds: 120
-
   # Single replica + HPA min=1 means PDB at minAvailable=1 would block voluntary
   # evictions. Disable for parity with vendure-client.
   podDisruptionBudget:
     enabled: false
     maxUnavailable: 1
-
   # Run on the shared 'vendure-clients' Karpenter NodePool (t3a.small).
   # Co-tenant with the vendure-client backend pod.
   nodeSelector:
     node-group: vendure-clients
-
   tolerations: []
-
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -150,9 +133,7 @@ app:
                   values:
                     - prabasaari
             topologyKey: kubernetes.io/hostname
-
   topologySpreadConstraints: []
-
 # =============================================================================
 # INGRESS — shared ALB (group.name: vendure-shared)
 # Storefront serves '/' on prabhasaaridesigns.com.
@@ -186,11 +167,9 @@ ingress:
         - path: /
           pathType: Prefix
           port: 80
-
 # =============================================================================
 # NETWORK POLICIES
 # =============================================================================
 networkPolicies:
   enabled: true
-
 priorityClassName: ""
