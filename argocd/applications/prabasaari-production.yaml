@@ -2,8 +2,9 @@
 # ArgoCD Application — Prabasaari Production
 # =============================================================================
 # Manages the Prabasaari Next.js storefront (prabhasaaridesigns.com).
-# Image tag is auto-bumped by ArgoCD Image Updater when the client repo's
-# CI pushes a new tag matching ^prabas-v[0-9]+\.[0-9]+\.[0-9]+$ to ECR.
+# Image tag is bumped by the prabas-aari client repo's GitHub Actions
+# workflow on every push to main (CI commits the new tag directly to this
+# repo's main branch). Same pattern as southmithai / vendure-client.
 # =============================================================================
 
 apiVersion: argoproj.io/v1alpha1
@@ -16,13 +17,8 @@ metadata:
   labels:
     environment: production
     app: prabasaari
-  annotations:
-    argocd-image-updater.argoproj.io/image-list: prabasaari=149536454380.dkr.ecr.ap-south-1.amazonaws.com/prabasaaridesigns
-    argocd-image-updater.argoproj.io/prabasaari.update-strategy: newest-build
-    argocd-image-updater.argoproj.io/prabasaari.allow-tags: regexp:^prabas-v[0-9]+\.[0-9]+\.[0-9]+$
-    argocd-image-updater.argoproj.io/prabasaari.helm.image-tag: app.image.tag
-    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-image-updater-secret
-    argocd-image-updater.argoproj.io/git-branch: main
+  # Image Updater intentionally NOT enabled — the client repo's workflow
+  # does the values bump itself.
 spec:
   project: default
 
