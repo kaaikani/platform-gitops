@@ -183,21 +183,14 @@ spec:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: AWS_REGION
             {{- end }}
+            # S3_BUCKET and S3_ENDPOINT are config (not secrets) — read from values.
+            # Matches vendure-deployment.yaml so deployments without S3_BUCKET in
+            # the synced secret (e.g. vendure-client) don't fail with
+            # CreateContainerConfigError.
             - name: S3_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "vendure-stack.secretName" . }}
-                  key: S3_BUCKET
-            {{- if .Values.s3.endpoint }}
+              value: {{ .Values.s3.bucket | quote }}
             - name: S3_ENDPOINT
-              value: {{ .Values.s3.endpoint | quote }}
-            {{- else }}
-            - name: S3_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "vendure-stack.secretName" . }}
-                  key: S3_ENDPOINT
-            {{- end }}
+              value: {{ .Values.s3.endpoint | default (printf "https://s3.%s.amazonaws.com" (.Values.s3.region | default "ap-south-1")) | quote }}
             {{- end }}
             # SMTP Configuration (worker sends emails)
             - name: SOUTHMITHAI_SMTP_HOST
