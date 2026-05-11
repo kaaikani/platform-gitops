@@ -193,107 +193,130 @@ spec:
               value: {{ .Values.s3.endpoint | default (printf "https://s3.%s.amazonaws.com" (.Values.s3.region | default "ap-south-1")) | quote }}
             {{- end }}
             # SMTP Configuration (worker sends emails)
+            # All SMTP/shipping/integration creds are marked optional so tenants
+            # that don't sync these keys (e.g. vendure-client) don't fail with
+            # CreateContainerConfigError. Matches vendure-deployment.yaml.
             - name: SOUTHMITHAI_SMTP_HOST
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SOUTHMITHAI_SMTP_HOST
+                  optional: true
             - name: SOUTHMITHAI_SMTP_PORT
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SOUTHMITHAI_SMTP_PORT
+                  optional: true
             - name: SOUTHMITHAI_SMTP_SECURE
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SOUTHMITHAI_SMTP_SECURE
+                  optional: true
             - name: SOUTHMITHAI_SMTP_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SOUTHMITHAI_SMTP_USERNAME
+                  optional: true
             - name: SOUTHMITHAI_SMTP_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SOUTHMITHAI_SMTP_PASSWORD
+                  optional: true
             - name: SOUTHMITHAI_EMAIL_FROM
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SOUTHMITHAI_EMAIL_FROM
+                  optional: true
             - name: SOUTHMITHAI_SHOP_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SOUTHMITHAI_SHOP_URL
+                  optional: true
             - name: SWADKERALA_SMTP_HOST
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SWADKERALA_SMTP_HOST
+                  optional: true
             - name: SWADKERALA_SMTP_PORT
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SWADKERALA_SMTP_PORT
+                  optional: true
             - name: SWADKERALA_SMTP_SECURE
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SWADKERALA_SMTP_SECURE
+                  optional: true
             - name: SWADKERALA_SMTP_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SWADKERALA_SMTP_USERNAME
+                  optional: true
             - name: SWADKERALA_SMTP_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SWADKERALA_SMTP_PASSWORD
+                  optional: true
             - name: SWADKERALA_EMAIL_FROM
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SWADKERALA_EMAIL_FROM
+                  optional: true
             - name: SWADKERALA_SHOP_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SWADKERALA_SHOP_URL
+                  optional: true
             # Shipping Provider Credentials (worker processes shipping jobs)
             - name: BLUEDART_CLIENT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: BLUEDART_CLIENT_ID
+                  optional: true
             - name: BLUEDART_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: BLUEDART_CLIENT_SECRET
+                  optional: true
             - name: SHIPROCKET_EMAIL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SHIPROCKET_EMAIL
+                  optional: true
             - name: SHIPROCKET_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: SHIPROCKET_PASSWORD
+                  optional: true
             - name: GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: GOOGLE_CLIENT_ID
+                  optional: true
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: ANTHROPIC_API_KEY
+                  optional: true
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           # Worker has no HTTP endpoint — use process liveness check
