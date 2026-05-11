@@ -116,11 +116,24 @@ vendure:
       exec:
         command: ["/bin/sh", "-c", "sleep 15"]
 # =============================================================================
-# WORKER — disabled. Low-traffic client; inline jobs are fine and saves ~400Mi.
-# Re-enable later if email queue / search indexing become a bottleneck.
+# WORKER — enabled with conservative sizing for low-traffic client.
+# Runs background jobs (emails, search indexing, payment webhooks, asset
+# processing) outside the API pods. Requests kept small so it coexists with
+# the API pod on a single t3a.small; limit covers the chart-hardcoded
+# --max-old-space-size=768 heap (vendure-worker-deployment.yaml).
 # =============================================================================
 worker:
-  enabled: false
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "192Mi"
+      cpu: "50m"
+    limits:
+      memory: "896Mi"
+      cpu: "300m"
+  nodeSelector:
+    node-group: vendure-clients
 # =============================================================================
 # DATABASE — shared RDS, separate database 'vendure_client'
 # Connection details (host, dbname, password) live in AWS Secrets Manager
