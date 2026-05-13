@@ -413,6 +413,7 @@ ingress:
         - path: /
           pathType: Prefix
           service: vendure
+          useStable: true
           port: 80
 # =============================================================================
 # SECURITY CONFIGURATION
