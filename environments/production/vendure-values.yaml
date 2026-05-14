@@ -43,6 +43,7 @@ namespace:
 vendure:
   enabled: true
   replicaCount: 2
+  revisionHistoryLimit: 2  # Keep only 2 old ReplicaSets — prevents zombie pods from stale revisions accumulating
   # RollingUpdate strategy: zero-downtime deploys
   # maxSurge: 1 = create 1 new pod FIRST, wait until ready, THEN kill old pod
   # maxUnavailable: 0 = never kill an old pod until new one is serving traffic
@@ -413,7 +414,6 @@ ingress:
         - path: /
           pathType: Prefix
           service: vendure
-          useStable: true
           port: 80
 # =============================================================================
 # SECURITY CONFIGURATION

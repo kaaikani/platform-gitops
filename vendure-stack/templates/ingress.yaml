@@ -33,7 +33,7 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ if .useStable }}vendure-stable{{ else }}{{ include "vendure-stack.fullname" $ }}-{{ .service }}{{ end }}
+                name: {{ include "vendure-stack.fullname" $ }}-{{ .service }}
                 port:
                   number: {{ .port }}
           {{- end }}

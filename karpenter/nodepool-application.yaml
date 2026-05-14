@@ -62,7 +62,7 @@ spec:
 
   # Resource Limits for this NodePool
   limits:
-    cpu: 4          # Max 2 c5a.large nodes — baseline 1 node, 2nd spins up during deploys/spikes
+    cpu: 6          # Max 3 c5a.large nodes — 3rd node allows recovery when 2 are saturated by crashing pods
     memory: 8Gi     # Max 8GB RAM total
 
   # Disruption Settings

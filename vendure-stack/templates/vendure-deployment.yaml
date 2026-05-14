@@ -7,6 +7,7 @@ metadata:
     {{- include "vendure-stack.vendure.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.vendure.replicaCount }}
+  revisionHistoryLimit: {{ .Values.vendure.revisionHistoryLimit | default 2 }}
   {{- if .Values.vendure.strategy }}
   strategy:
     {{- toYaml .Values.vendure.strategy | nindent 4 }}
