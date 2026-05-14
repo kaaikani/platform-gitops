@@ -26,11 +26,11 @@ spec:
 
         - key: karpenter.k8s.aws/instance-family
           operator: In
-          values: ["c5a"]
+          values: ["t3a"]
 
         - key: karpenter.k8s.aws/instance-size
           operator: In
-          values: ["large"]
+          values: ["medium"]
 
         - key: karpenter.k8s.aws/instance-generation
           operator: Gt
@@ -49,7 +49,7 @@ spec:
       expireAfter: 720h
 
   # Capacity for 3 storefronts × 2 replicas + headroom for rollouts
-  # Each c5a.large = 2 vCPU / 4 GiB. Limit allows up to 3 nodes.
+  # Each t3a.medium = 2 vCPU / 4 GiB. Limit allows up to 3 nodes.
   limits:
     cpu: 6
     memory: 12Gi
