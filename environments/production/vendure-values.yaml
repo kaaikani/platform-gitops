@@ -61,9 +61,8 @@ vendure:
   #   - Memory request raised 512Mi → 1500Mi to match real usage.
   #     Previous 900Mi was still too low — pods were hitting 1608Mi actual,
   #     causing OOM. HPA also over-scaled with low request values.
-  #   - maxOldSpaceSize lowered 1500 → 1200 to prevent OOMKill:
-  #     1200MB heap + ~600MB non-heap = ~1800MB total, safely within 2Gi limit.
-  #     At 1500MB heap pods were exceeding the 2Gi container limit and crashing.
+  #   - maxOldSpaceSize: 1200 caused GC thrash (heap capped, couldn't compact).
+  #     Raised to 1400: 1400MB heap + ~600MB non-heap = ~2000MB, within 2Gi limit.
   #   - Requests = guaranteed reservation (scheduler uses this)
   #   - Limits = hard ceiling (OOMKill/throttle if exceeded)
   # Memory bumped 1Gi → 2Gi after pod OOMKill on 2026-04-29 19:21 IST.
@@ -76,9 +75,9 @@ vendure:
       cpu: "1500m"
   # Node.js V8 heap cap (in MiB). Without this, V8 sizes the heap from cgroup
   # memory and can OOM-kill the pod. Keep ≤ 75% of resources.limits.memory.
-  # Lowered 1500 → 1200 on 2026-05-14: pods were OOMKilling at 1500 (heap alone
-  # exceeded 2Gi limit when combined with non-heap overhead of ~600MB).
-  maxOldSpaceSize: 1200
+  # 1200 caused GC thrash (heap hit ~1166MB cap, GC couldn't compact) 2026-05-14.
+  # 1400MB heap + ~600MB non-heap = ~2000MB, safely within 2Gi container limit.
+  maxOldSpaceSize: 1400
   service:
     type: ClusterIP
     ports:
