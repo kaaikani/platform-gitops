@@ -56,9 +56,11 @@ vendure:
     repository: vendure-prod
     tag: "devops-v1.0.66"
     pullPolicy: Always
-  # Resource sizing based on actual production usage (measured 2026-03-02):
-  #   - Actual per pod: 477-799m CPU, ~260Mi RAM (kubectl top)
-  #   - Total across 5 pods: ~3121m CPU
+  # Resource sizing based on actual production usage (measured 2026-05-14):
+  #   - Actual per pod: 494-1373m CPU, ~296-496Mi RAM (kubectl top)
+  #   - Memory request raised 512Mi → 900Mi to match real usage — prevents HPA
+  #     from over-scaling (220% of request triggered false scale-up to 4 pods,
+  #     exhausting RDS max_connections ~150 on db.t3.small → health probe timeout)
   #   - Requests = guaranteed reservation (scheduler uses this)
   #   - Limits = hard ceiling (OOMKill/throttle if exceeded)
   # Memory bumped 1Gi → 2Gi after pod OOMKill on 2026-04-29 19:21 IST.
@@ -66,7 +68,7 @@ vendure:
   # remains for non-heap (native modules, buffers, file streams).
   resources:
     requests:
-      memory: "512Mi"
+      memory: "900Mi"
       cpu: "600m"
     limits:
       memory: "2Gi"
@@ -131,10 +133,12 @@ vendure:
     enabled: true
     minReplicas: 2
     maxReplicas: 4
-    # 150% of 800m request = 1200m actual usage triggers scale-up.
-    # Each pod has a full c5a.large (2000m), so scale triggers at 60% of instance.
+    # 150% of 600m request = 900m actual usage triggers scale-up.
+    # Each pod has a full c5a.large (2000m), so scale triggers at 45% of instance.
+    # Memory: 80% of 900Mi = 720Mi actual usage triggers scale-up (was 90% of 512Mi = 460Mi,
+    # too sensitive — caused false scale-up to 4 pods exhausting RDS connections).
     targetCPUUtilizationPercentage: 150
-    targetMemoryUtilizationPercentage: 90
+    targetMemoryUtilizationPercentage: 80
     # HPA behavior configuration for controlled scaling
     behavior:
       scaleUp:
