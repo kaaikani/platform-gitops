@@ -57,25 +57,28 @@ vendure:
     tag: "devops-v1.0.66"
     pullPolicy: Always
   # Resource sizing based on actual production usage (measured 2026-05-14):
-  #   - Actual per pod: 494-1373m CPU, ~296-496Mi RAM (kubectl top)
-  #   - Memory request raised 512Mi → 900Mi to match real usage — prevents HPA
-  #     from over-scaling (220% of request triggered false scale-up to 4 pods,
-  #     exhausting RDS max_connections ~150 on db.t3.small → health probe timeout)
+  #   - Actual per pod: 770m-1373m CPU, ~1023-1608Mi RAM (kubectl top)
+  #   - Memory request raised 512Mi → 1500Mi to match real usage.
+  #     Previous 900Mi was still too low — pods were hitting 1608Mi actual,
+  #     causing OOM. HPA also over-scaled with low request values.
+  #   - maxOldSpaceSize lowered 1500 → 1200 to prevent OOMKill:
+  #     1200MB heap + ~600MB non-heap = ~1800MB total, safely within 2Gi limit.
+  #     At 1500MB heap pods were exceeding the 2Gi container limit and crashing.
   #   - Requests = guaranteed reservation (scheduler uses this)
   #   - Limits = hard ceiling (OOMKill/throttle if exceeded)
   # Memory bumped 1Gi → 2Gi after pod OOMKill on 2026-04-29 19:21 IST.
-  # Node heap capped at 1500 MiB (see maxOldSpaceSize below) — 500 MiB
-  # remains for non-heap (native modules, buffers, file streams).
   resources:
     requests:
-      memory: "900Mi"
+      memory: "1500Mi"
       cpu: "600m"
     limits:
       memory: "2Gi"
       cpu: "1500m"
   # Node.js V8 heap cap (in MiB). Without this, V8 sizes the heap from cgroup
   # memory and can OOM-kill the pod. Keep ≤ 75% of resources.limits.memory.
-  maxOldSpaceSize: 1500
+  # Lowered 1500 → 1200 on 2026-05-14: pods were OOMKilling at 1500 (heap alone
+  # exceeded 2Gi limit when combined with non-heap overhead of ~600MB).
+  maxOldSpaceSize: 1200
   service:
     type: ClusterIP
     ports:
@@ -135,8 +138,8 @@ vendure:
     maxReplicas: 4
     # 150% of 600m request = 900m actual usage triggers scale-up.
     # Each pod has a full c5a.large (2000m), so scale triggers at 45% of instance.
-    # Memory: 80% of 900Mi = 720Mi actual usage triggers scale-up (was 90% of 512Mi = 460Mi,
-    # too sensitive — caused false scale-up to 4 pods exhausting RDS connections).
+    # Memory: 80% of 1500Mi = 1200Mi actual usage triggers scale-up.
+    # Raised request to 1500Mi (actual usage 1023-1608Mi) so HPA math is accurate.
     targetCPUUtilizationPercentage: 150
     targetMemoryUtilizationPercentage: 80
     # HPA behavior configuration for controlled scaling
