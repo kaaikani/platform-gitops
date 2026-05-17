@@ -43,7 +43,7 @@ namespace:
 vendure:
   enabled: true
   replicaCount: 2
-  revisionHistoryLimit: 2  # Keep only 2 old ReplicaSets — prevents zombie pods from stale revisions accumulating
+  revisionHistoryLimit: 2 # Keep only 2 old ReplicaSets — prevents zombie pods from stale revisions accumulating
   # RollingUpdate strategy: zero-downtime deploys
   # maxSurge: 1 = create 1 new pod FIRST, wait until ready, THEN kill old pod
   # maxUnavailable: 0 = never kill an old pod until new one is serving traffic
@@ -54,7 +54,7 @@ vendure:
       maxUnavailable: 0
   image:
     repository: vendure-prod
-    tag: "devops-v1.0.66"
+    tag: "devops-v1.0.68"
     pullPolicy: Always
   # Resource sizing based on actual production usage (measured 2026-05-14):
   #   - Actual per pod: 770m-1373m CPU, ~1023-1608Mi RAM (kubectl top)
