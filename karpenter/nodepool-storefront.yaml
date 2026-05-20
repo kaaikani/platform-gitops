@@ -20,9 +20,13 @@ spec:
           operator: In
           values: ["linux"]
 
+        # Spot-preferred with automatic on-demand fallback (Karpenter
+        # price-capacity-optimized). Storefronts run >=2 stateless replicas,
+        # so a spot reclaim reschedules with no user-facing downtime.
+        # ~60% cheaper than on-demand.
         - key: karpenter.sh/capacity-type
           operator: In
-          values: ["on-demand"]
+          values: ["spot", "on-demand"]
 
         - key: karpenter.k8s.aws/instance-family
           operator: In

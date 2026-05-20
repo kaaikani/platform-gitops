@@ -56,28 +56,23 @@ vendure:
     repository: vendure-prod
     tag: "devops-v1.0.66"
     pullPolicy: Always
-  # Resource sizing based on actual production usage (measured 2026-05-14):
-  #   - Actual per pod: 770m-1373m CPU, ~1023-1608Mi RAM (kubectl top)
-  #   - Memory request raised 512Mi → 1500Mi to match real usage.
-  #     Previous 900Mi was still too low — pods were hitting 1608Mi actual,
-  #     causing OOM. HPA also over-scaled with low request values.
-  #   - maxOldSpaceSize: 1200 caused GC thrash (heap capped, couldn't compact).
-  #     Raised to 1400: 1400MB heap + ~600MB non-heap = ~2000MB, within 2Gi limit.
-  #   - Requests = guaranteed reservation (scheduler uses this)
-  #   - Limits = hard ceiling (OOMKill/throttle if exceeded)
-  # Memory bumped 1Gi → 2Gi after pod OOMKill on 2026-04-29 19:21 IST.
+  # Resource sizing — packed for 2 vendure pods + 1 worker on a single c5a.large
+  # (2 vCPU / 4 GiB, ~1,930m / ~3,100Mi allocatable after daemonsets).
+  #   Memory budget on the node:
+  #     2 × 1200Mi (vendure) + 384Mi (worker) = 2784Mi requests
+  #     → fits in ~3,100Mi allocatable, leaves ~316Mi for DaemonSets.
+  #   CPU budget on the node:
+  #     2 × 400m (vendure) + 100m (worker) = 900m requests
+  #     → fits in ~1,800m allocatable.
   resources:
     requests:
-      memory: "1500Mi"
-      cpu: "600m"
+      memory: "1200Mi"
+      cpu: "400m"
     limits:
-      memory: "2Gi"
+      memory: "1500Mi"
       cpu: "1500m"
-  # Node.js V8 heap cap (in MiB). Without this, V8 sizes the heap from cgroup
-  # memory and can OOM-kill the pod. Keep ≤ 75% of resources.limits.memory.
-  # 1200 caused GC thrash (heap hit ~1166MB cap, GC couldn't compact) 2026-05-14.
-  # 1400MB heap + ~600MB non-heap = ~2000MB, safely within 2Gi container limit.
-  maxOldSpaceSize: 1400
+  # Node.js V8 heap cap (MiB). Kept ≤ 70% of resources.limits.memory (1500Mi).
+  maxOldSpaceSize: 1000
   service:
     type: ClusterIP
     ports:
@@ -131,14 +126,16 @@ vendure:
     timeoutSeconds: 5
     failureThreshold: 6 # 6 failures = 60s before removing from service (was 3 = 30s)
   # Enable autoscaling for production
+  # Steady state: 2 vendure pods + worker pack onto a single c5a.large
+  # (via podAffinity below). When traffic spikes, HPA scales to 3-4 pods;
+  # Karpenter then provisions a 2nd c5a.large to host the overflow. Once
+  # load drops, HPA scales back to 2 and Karpenter consolidates to 1 node.
   autoscaling:
     enabled: true
     minReplicas: 2
     maxReplicas: 4
-    # 150% of 600m request = 900m actual usage triggers scale-up.
-    # Each pod has a full c5a.large (2000m), so scale triggers at 45% of instance.
-    # Memory: 80% of 1500Mi = 1200Mi actual usage triggers scale-up.
-    # Raised request to 1500Mi (actual usage 1023-1608Mi) so HPA math is accurate.
+    # 150% of 400m request = 600m actual usage triggers scale-up.
+    # Memory: 80% of 1200Mi = 960Mi actual usage triggers scale-up.
     targetCPUUtilizationPercentage: 150
     targetMemoryUtilizationPercentage: 80
     # HPA behavior configuration for controlled scaling
