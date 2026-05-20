@@ -61,12 +61,9 @@ spec:
       expireAfter: 720h
 
   # Resource Limits for this NodePool
-  # Steady state: 1 × c5a.large (2 vCPU / 4 GiB) hosts both vendure pods +
-  # worker via podAffinity. When HPA scales to 3-4 pods during a traffic
-  # spike, Karpenter provisions a 2nd c5a.large; cap allows up to 2 nodes.
   limits:
-    cpu: 4
-    memory: 8Gi
+    cpu: 6          # Max 3 c5a.large nodes — 3rd node allows recovery when 2 are saturated by crashing pods
+    memory: 8Gi     # Max 8GB RAM total
 
   # Disruption Settings
   disruption:
