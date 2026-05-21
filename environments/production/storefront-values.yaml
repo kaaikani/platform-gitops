@@ -41,7 +41,7 @@ storefront:
     previewReplicaCount: 1
   image:
     repository: kaaikanistore
-    tag: "v0.4.17"
+    tag: "v0.4.18"
     pullPolicy: Always
   # Resource sizing for Remix SSR (Node.js)
   # Actual per pod: 21-25m CPU, ~60Mi RAM (measured 2026-03-02)
