@@ -42,7 +42,7 @@ storefront:
     previewReplicaCount: 1
   image:
     repository: southmithai
-    tag: "v0.1.8"
+    tag: "v0.1.9"
     pullPolicy: Always
   # Resource sizing for Remix SSR (Node.js)
   # Actual per pod: 70-215m CPU, ~80Mi RAM (measured 2026-03-02)
