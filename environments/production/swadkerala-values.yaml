@@ -71,18 +71,20 @@ storefront:
   podAnnotations:
     reloader.stakater.com/auto: "true"
   # Health probes
+  # Probe periods slowed to reduce Vendure SSR load — each probe hits `/` which
+  # runs full Remix loader chain with GraphQL calls.
   livenessProbe:
     enabled: true
     path: /
     initialDelaySeconds: 120
-    periodSeconds: 30
+    periodSeconds: 60
     timeoutSeconds: 30
     failureThreshold: 5
   readinessProbe:
     enabled: true
     path: /
     initialDelaySeconds: 60
-    periodSeconds: 15
+    periodSeconds: 30
     timeoutSeconds: 30
     failureThreshold: 5
   startupProbe:

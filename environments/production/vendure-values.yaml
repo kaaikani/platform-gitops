@@ -44,14 +44,22 @@ vendure:
   enabled: true
   replicaCount: 2
   revisionHistoryLimit: 2 # Keep only 2 old ReplicaSets — prevents zombie pods from stale revisions accumulating
-  # RollingUpdate strategy: zero-downtime deploys
-  # maxSurge: 1 = create 1 new pod FIRST, wait until ready, THEN kill old pod
-  # maxUnavailable: 0 = never kill an old pod until new one is serving traffic
+  # RollingUpdate strategy: in-place deploys (no node surge)
+  # maxSurge: 0 = NEVER create an extra pod during deploy. Required because each
+  #   vendure pod requests 1800Mi memory and a c5a.large node fits exactly 2
+  #   pods — a 3rd surge pod cannot schedule, and the Karpenter NodePool is not
+  #   configured to provision additional `node-group=vendure` nodes. With
+  #   surge=1, deploys hung in Pending forever until an old pod was manually
+  #   deleted to free node capacity.
+  # maxUnavailable: 1 = kill 1 old pod first to free a node slot, then schedule
+  #   the new pod into that slot. During deploy, capacity briefly drops to 1
+  #   pod; the surviving pod serves traffic via ALB. Acceptable for current
+  #   traffic levels (~50–1000 customer req/hr).
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   image:
     repository: vendure-prod
     tag: "devops-v1.0.68"

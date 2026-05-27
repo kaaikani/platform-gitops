@@ -67,18 +67,20 @@ app:
     readOnlyRootFilesystem: false
   terminationGracePeriodSeconds: 30
   dnsPolicy: ClusterFirst
+  # Probe periods slowed to reduce Vendure SSR load — each probe hits `/` which
+  # triggers a full server-side render with GraphQL calls.
   livenessProbe:
     enabled: true
     path: /
     initialDelaySeconds: 60
-    periodSeconds: 30
+    periodSeconds: 60
     timeoutSeconds: 10
     failureThreshold: 5
   readinessProbe:
     enabled: true
     path: /
     initialDelaySeconds: 30
-    periodSeconds: 15
+    periodSeconds: 30
     timeoutSeconds: 10
     failureThreshold: 5
   startupProbe:
