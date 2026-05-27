@@ -32,7 +32,7 @@ app:
   replicaCount: 1
   image:
     repository: prabasaaridesigns
-    tag: "prabas-v0.0.9"
+    tag: "prabas-v0.0.10"
     pullPolicy: Always
   # Sized for t3a.small co-tenancy with vendure-client (384Mi req / 900Mi limit).
   # Both pods request ~584Mi total — fits inside ~1.4 GiB allocatable on a
