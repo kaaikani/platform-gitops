@@ -62,7 +62,7 @@ vendure:
       maxUnavailable: 1
   image:
     repository: vendure-prod
-    tag: "devops-v1.0.72"
+    tag: "devops-v1.0.73"
     pullPolicy: Always
   # Resource sizing based on actual production usage:
   #   - Actual per pod: 770m-1373m CPU, ~1023-1608Mi RAM (kubectl top)
