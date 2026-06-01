@@ -142,9 +142,18 @@ vendure:
     minReplicas: 2
     maxReplicas: 4
     # 150% of 600m request = 900m actual usage triggers scale-up.
-    # Memory: 80% of 1800Mi = 1440Mi actual usage triggers scale-up.
     targetCPUUtilizationPercentage: 150
-    targetMemoryUtilizationPercentage: 80
+    # Memory metric intentionally DISABLED (2026-06-01).
+    #   Node.js with maxOldSpaceSize=1800 deliberately grows and HOLDS V8 old
+    #   space near 1800Mi, so memory working set sits at ~90-100% of the 1800Mi
+    #   request once a pod warms up. An 80% memory target is therefore exceeded
+    #   permanently → HPA pins itself at maxReplicas and demands pods that
+    #   cannot schedule (the 2-node vendure pool fits 1 pod/node; Karpenter does
+    #   not provision more node-group=vendure nodes). Result was 2 pods stuck
+    #   Pending indefinitely. CPU is the correct scaling signal for this app.
+    #   Explicit null deletes the chart default (vendure-stack/values.yaml:125),
+    #   which Helm would otherwise re-supply if this key were merely omitted.
+    targetMemoryUtilizationPercentage: null
     # HPA behavior configuration for controlled scaling
     behavior:
       scaleUp:
