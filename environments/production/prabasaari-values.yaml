@@ -67,25 +67,25 @@ app:
     readOnlyRootFilesystem: false
   terminationGracePeriodSeconds: 30
   dnsPolicy: ClusterFirst
-  # Probe periods slowed to reduce Vendure SSR load — each probe hits `/` which
-  # triggers a full server-side render with GraphQL calls.
+  # Probes hit `/healthz`, a lightweight Next.js route handler that returns
+  # immediately and never touches Vendure/Hygraph, so it triggers no SSR load.
   livenessProbe:
     enabled: true
-    path: /
+    path: /healthz
     initialDelaySeconds: 60
     periodSeconds: 60
     timeoutSeconds: 10
     failureThreshold: 5
   readinessProbe:
     enabled: true
-    path: /
+    path: /healthz
     initialDelaySeconds: 30
     periodSeconds: 30
     timeoutSeconds: 10
     failureThreshold: 5
   startupProbe:
     enabled: true
-    path: /
+    path: /healthz
     initialDelaySeconds: 10
     periodSeconds: 10
     timeoutSeconds: 10
@@ -156,7 +156,7 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/b0241105-6298-4092-8733-693a9e69e993"
-    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "10"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"

@@ -71,25 +71,25 @@ storefront:
   podAnnotations:
     reloader.stakater.com/auto: "true"
   # Health probes
-  # Probe periods slowed to reduce Vendure SSR load — each probe hits `/` which
-  # runs full Remix loader chain with GraphQL calls.
+  # Probes hit `/healthz`, a lightweight resource route that does NOT run the
+  # Remix root loader, so it never triggers Vendure/Hygraph SSR queries.
   livenessProbe:
     enabled: true
-    path: /
+    path: /healthz
     initialDelaySeconds: 120
     periodSeconds: 60
     timeoutSeconds: 30
     failureThreshold: 5
   readinessProbe:
     enabled: true
-    path: /
+    path: /healthz
     initialDelaySeconds: 60
     periodSeconds: 30
     timeoutSeconds: 30
     failureThreshold: 5
   startupProbe:
     enabled: true
-    path: /
+    path: /healthz
     initialDelaySeconds: 10
     periodSeconds: 10
     timeoutSeconds: 30
@@ -155,7 +155,7 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:149536454380:certificate/0d120167-6d0c-4ea3-82ad-686e6357c242,arn:aws:acm:ap-south-1:149536454380:certificate/f6551689-c45d-4ea9-80b7-3858423e325d,arn:aws:acm:ap-south-1:149536454380:certificate/48b6176f-9f3c-481b-bcde-07b0ad193c2c,arn:aws:acm:ap-south-1:149536454380:certificate/19bc11fa-8478-4db4-9d56-22663150da3d"
-    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "15"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
