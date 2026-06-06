@@ -27,7 +27,7 @@ vendure:
       maxUnavailable: 0
   image:
     repository: vendure-client
-    tag: "devops-v1.0.13"
+    tag: "devops-v1.0.14"
     pullPolicy: Always
   # Shrunk for t3a.small (2 GiB total, ~1.2 GiB usable after kubelet+system).
   # Limit kept under 1 GiB so a 2nd pod can transiently fit during rolling
