@@ -54,12 +54,13 @@ spec:
 
       expireAfter: 720h
 
-  # Dedicated to the prabasaari storefront only. Cap at 2 nodes — covers the
-  # storefront's HPA (max=2, spread across hosts by podAntiAffinity) plus a
-  # transient rolling-update surge. Each t3a.small = 2 vCPU / 2 GiB.
+  # Dedicated to the prabasaari storefront only. Hard-capped at ONE t3a.small
+  # (2 vCPU / 2 GiB): the limit physically prevents Karpenter from ever adding
+  # a 2nd node. The HPA's 2nd replica (512Mi x 2) is sized to co-locate on this
+  # single node, and maxSurge:0 means deploys never need a surge pod either.
   limits:
-    cpu: 4
-    memory: 4Gi
+    cpu: 2
+    memory: 2Gi
 
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized

@@ -34,16 +34,26 @@ app:
     repository: prabasaaridesigns
     tag: "prabas-v0.0.21"
     pullPolicy: Always
-  # Sized for a dedicated t3a.small (~1.4 GiB allocatable). The storefront is
-  # now the only app pod on its node, so it has the whole node to itself.
-  # Limit is burstable; t3a credits cover short SSR spikes.
+  # Sized for a dedicated t3a.small (~1287Mi app-allocatable after daemonsets).
+  # Both HPA replicas must fit on the SAME node — no 2nd node is ever created.
+  # 2 x 512Mi request = 1024Mi <= 1287Mi budget, leaving headroom. The 1024Mi
+  # limit lets a single pod burst into the node's free memory; t3a credits
+  # cover short SSR CPU spikes.
   resources:
     requests:
-      memory: "200Mi"
+      memory: "512Mi"
       cpu: "100m"
     limits:
-      memory: "600Mi"
+      memory: "1024Mi"
       cpu: "1000m"
+  # maxSurge:0 / maxUnavailable:1 — a rolling deploy replaces pods in place and
+  # NEVER creates an extra (surge) pod, so it can't overflow the single node and
+  # trigger a 2nd t3a.small. (Chart defaults to rolling surge otherwise.)
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   service:
     type: ClusterIP
     port: 80
@@ -91,10 +101,10 @@ app:
     timeoutSeconds: 10
     failureThreshold: 30
   # HPA: scales only on real load. 150% of 100m request = 150m sustained
-  # before adding a 2nd pod (which forces a 2nd t3a.small via Karpenter).
-  # Mirrors the vendure-client philosophy (it uses 200%); slightly more
-  # responsive because Next.js SSR gets latency-sensitive faster than the
-  # API tier under sustained CPU pressure.
+  # before adding a 2nd pod. The 2nd replica co-locates on the SAME t3a.small
+  # (512Mi x 2 fits the node budget) — Karpenter does NOT add a node. Slightly
+  # more responsive than vendure-client (200%) because Next.js SSR gets
+  # latency-sensitive faster under sustained CPU pressure.
   autoscaling:
     enabled: true
     minReplicas: 1
@@ -124,18 +134,10 @@ app:
   nodeSelector:
     node-group: prabasaari-storefront
   tolerations: []
-  affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                    - prabasaari
-            topologyKey: kubernetes.io/hostname
+  # No pod anti-affinity: the 2nd HPA replica is MEANT to co-locate on the same
+  # single t3a.small. Spreading across hosts would force Karpenter to add a 2nd
+  # node, which is exactly what we want to avoid here.
+  affinity: {}
   topologySpreadConstraints: []
 # =============================================================================
 # INGRESS — shared ALB (group.name: vendure-shared)

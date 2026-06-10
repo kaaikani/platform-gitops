@@ -20,26 +20,31 @@ namespace:
 vendure:
   enabled: true
   replicaCount: 1
+  # maxSurge:0 / maxUnavailable:1 — a rolling deploy replaces the pod in place
+  # without ever creating an extra (surge) pod, so the API + worker (+ a 2nd
+  # HPA replica) always stay within ONE t3a.small. No 2nd node is created.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   image:
     repository: vendure-client
     tag: "devops-v1.0.19"
     pullPolicy: Always
-  # Shrunk for t3a.small (2 GiB total, ~1.2 GiB usable after kubelet+system).
-  # Limit kept under 1 GiB so a 2nd pod can transiently fit during rolling
-  # update (maxSurge=1) on the same node.
+  # Dedicated t3a.small: ~1287Mi app-allocatable after daemonsets. Budget must
+  # hold 2 API replicas (HPA max) + the worker, all on ONE node:
+  #   2 x 480Mi (API) + 192Mi (worker) = 1152Mi <= 1287Mi  ✓
+  # The 1024Mi limit lets a single API pod burst into the node's free memory;
+  # CPU stays burstable on t3a credits.
   resources:
     requests:
-      memory: "384Mi"
+      memory: "480Mi"
       cpu: "200m"
     limits:
-      memory: "900Mi"
+      memory: "1024Mi"
       cpu: "1500m" # burstable — t3a credits cover short spikes
-  maxOldSpaceSize: 700 # ~75% of 900Mi limit
+  maxOldSpaceSize: 850 # ~83% of 1024Mi limit
   service:
     type: ClusterIP
     ports:
@@ -78,7 +83,8 @@ vendure:
     timeoutSeconds: 5
     failureThreshold: 60
   # HPA: scales only on real load. 200% of 200m request = 400m sustained.
-  # Scale-up spawns a 2nd t3a.small via Karpenter. Accepts brief 2-node cost.
+  # The 2nd replica is sized to land on the SAME t3a.small (see resources
+  # budget above) — Karpenter does NOT add a node. Node cap is 1 (NodePool).
   autoscaling:
     enabled: true
     minReplicas: 1

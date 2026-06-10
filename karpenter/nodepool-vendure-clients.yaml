@@ -50,13 +50,14 @@ spec:
 
       expireAfter: 720h
 
-  # Dedicated to vendure-client (API + worker) only — prabasaari now has its
-  # own 'prabasaari-storefront' NodePool. Cap at 2 nodes: covers the API HPA
-  # (max=2) plus the worker, and a transient rolling-update surge (maxSurge=1).
-  # Each t3a.small = 2 vCPU / 2 GiB; 2 nodes = 4 vCPU / 4 GiB.
+  # Dedicated to vendure-client (API + worker) only. Hard-capped at ONE
+  # t3a.small (2 vCPU / 2 GiB): the limit physically prevents Karpenter from
+  # ever adding a 2nd node. HPA scaling (API 1->2) and the worker are sized to
+  # bin-pack onto this single node (see vendure-client-values.yaml resources),
+  # and maxSurge:0 means deploys never need a surge pod either.
   limits:
-    cpu: 4
-    memory: 4Gi
+    cpu: 2
+    memory: 2Gi
 
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
