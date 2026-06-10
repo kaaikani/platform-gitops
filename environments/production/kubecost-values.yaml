@@ -4,7 +4,7 @@
 # Cost monitoring and optimization using existing Prometheus stack
 # Cost-optimized: no bundled Prometheus/Grafana, minimal resources
 #
-# Access: https://kube.kaaikani.co.in
+# Access: https://kubecost.kaaikani.co.in
 # Namespace: kubecost
 # Node: platform node group (dedicated=platform:NoSchedule)
 #
@@ -106,7 +106,7 @@ ingress:
   enabled: true
   className: alb
   hosts:
-    - kube.kaaikani.co.in
+    - kubecost.kaaikani.co.in
   paths:
     - /
   pathType: Prefix
