@@ -102,7 +102,7 @@ data:
 
       # Alert when pod memory usage is high
       - alert: PodHighMemory
-        expr: (container_memory_usage_bytes{namespace="vendure-production"} / container_spec_memory_limit_bytes{namespace="vendure-production"}) > 0.85
+        expr: (max by (pod) (container_memory_working_set_bytes{namespace="vendure-production",container="vendure"}) / max by (pod) (kube_pod_container_resource_limits{namespace="vendure-production",container="vendure",resource="memory"})) > 0.85
         for: 5m
         labels:
           severity: warning

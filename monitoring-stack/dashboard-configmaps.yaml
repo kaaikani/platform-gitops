@@ -1,24 +1,8 @@
 # =============================================================================
-# Dashboard ConfigMaps for Grafana Sidecar Provisioning
-# JSON dashboards inlined for ArgoCD directory-mode deployment
-#
-# Folder Structure:
-#   SRE/           - Golden signals, SLO, error budget (war room)
-#   Vendure/       - Backend RED method, Node.js runtime, process health
-#   Storefronts/   - Frontend health per site (CPU, memory, errors, scaling)
-#   Kubernetes/    - EKS nodes, pods, resource pressure, HPA, throttling
-#   Database/      - MySQL RDS performance, connections, InnoDB
-#   Cache/         - Redis commands, hit ratio, memory
-#   Cloudflare/    - CDN traffic, cache, errors, security
-#
-# Log dashboards are in separate YAML files:
-#   vendure-logs-dashboard.yaml      (Loki - Vendure server/worker logs)
-#   storefronts-logs-dashboard.yaml  (Loki - Storefront logs)
+# GENERATED FILE - do not edit by hand.
+# Source: monitoring-stack/dashboards/**/*.json
+# Regenerate: python3 scripts/monitoring/build-dashboards.py
 # =============================================================================
-
----
-# === SRE ===
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -70,7 +54,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "(sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+              "expr": "(sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
               "refId": "A"
             }
           ],
@@ -103,7 +87,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+              "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
               "refId": "A"
             }
           ],
@@ -133,7 +117,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+              "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
               "refId": "A"
             }
           ],
@@ -166,7 +150,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
               "refId": "A"
             }
           ],
@@ -265,7 +249,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "1 - ((1 - (sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[30d])) - sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[30d]))) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[30d]))) / (1 - 0.999))",
+              "expr": "1 - ((1 - (sum(rate(http_requests_total{namespace=\"vendure-production\"}[30d])) - sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[30d]))) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[30d]))) / (1 - 0.999))",
               "refId": "A"
             }
           ],
@@ -336,7 +320,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)",
+              "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)",
               "legendFormat": "{{route}}",
               "refId": "A"
             }
@@ -364,7 +348,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)",
+              "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)",
               "legendFormat": "{{status}}",
               "refId": "A"
             }
@@ -412,22 +396,22 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "histogram_quantile(0.50, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
               "legendFormat": "P50",
               "refId": "A"
             },
             {
-              "expr": "histogram_quantile(0.90, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+              "expr": "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
               "legendFormat": "P90",
               "refId": "B"
             },
             {
-              "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
               "legendFormat": "P95",
               "refId": "C"
             },
             {
-              "expr": "histogram_quantile(0.99, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
               "legendFormat": "P99",
               "refId": "D"
             }
@@ -454,7 +438,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))",
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))",
               "legendFormat": "{{route}}",
               "refId": "A"
             }
@@ -516,7 +500,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "rate(container_cpu_cfs_throttled_seconds_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[5m])",
+              "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[5m])) / clamp_min(sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[5m])), 1)",
               "legendFormat": "{{pod}} / {{container}}",
               "refId": "A"
             }
@@ -552,7 +536,7 @@ data:
               "refId": "A"
             },
             {
-              "expr": "container_spec_memory_limit_bytes{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}",
+              "expr": "kube_pod_container_resource_limits{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\",resource=\"memory\"}",
               "legendFormat": "limit: {{pod}} / {{container}}",
               "refId": "B"
             }
@@ -624,7 +608,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "(sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+              "expr": "(sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
               "legendFormat": "Success Rate",
               "refId": "A"
             },
@@ -668,12 +652,12 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[1h])) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[1h])) / (1 - 0.999)",
+              "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[1h])) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[1h])) / (1 - 0.999)",
               "legendFormat": "Burn Rate (1h window)",
               "refId": "A"
             },
             {
-              "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[6h])) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[6h])) / (1 - 0.999)",
+              "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[6h])) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[6h])) / (1 - 0.999)",
               "legendFormat": "Burn Rate (6h window)",
               "refId": "B"
             }
@@ -699,9 +683,6 @@ data:
         }
       ]
     }
----
-# === VENDURE ===
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -745,7 +726,7 @@ data:
           "title": "Requests/sec", "type": "stat",
           "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
           "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))", "refId": "A" }]
+          "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -753,7 +734,7 @@ data:
           "title": "Error Rate", "type": "stat",
           "fieldConfig": { "defaults": { "unit": "percentunit", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] }, "noValue": "0%" } },
           "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])), 0.001)", "refId": "A" }]
+          "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])), 0.001)", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -761,7 +742,7 @@ data:
           "title": "P95 Latency", "type": "stat",
           "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] } } },
           "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
+          "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -769,7 +750,7 @@ data:
           "title": "P99 Latency", "type": "stat",
           "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] } } },
           "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "targets": [{ "expr": "histogram_quantile(0.99, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
+          "targets": [{ "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -793,7 +774,7 @@ data:
           "title": "Open FDs", "type": "stat",
           "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 500 }, { "color": "red", "value": 900 }] } } },
           "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "targets": [{ "expr": "avg(process_open_fds{namespace=\"vendure-production\"})", "refId": "A" }]
+          "targets": [{ "expr": "avg(vendure_process_open_fds{namespace=\"vendure-production\"})", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -803,7 +784,7 @@ data:
           "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "targets": [{ "expr": "count(kube_pod_status_phase{namespace=\"vendure-production\", phase=\"Running\"} == 1)", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 200, "title": "API Traffic — RED", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -811,7 +792,7 @@ data:
           "title": "Request Rate by Route", "type": "timeseries",
           "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "normal" } } } },
           "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-          "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)", "legendFormat": "{{route}}", "refId": "A" }]
+          "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)", "legendFormat": "{{route}}", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -826,9 +807,9 @@ data:
             ]
           },
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-          "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }]
+          "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 300, "title": "Latency", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -837,10 +818,10 @@ data:
           "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" } } },
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [
-            { "expr": "histogram_quantile(0.50, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p50", "refId": "A" },
-            { "expr": "histogram_quantile(0.90, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p90", "refId": "B" },
-            { "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p95", "refId": "C" },
-            { "expr": "histogram_quantile(0.99, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p99", "refId": "D" }
+            { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p50", "refId": "A" },
+            { "expr": "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p90", "refId": "B" },
+            { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p95", "refId": "C" },
+            { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p99", "refId": "D" }
           ]
         },
         {
@@ -849,9 +830,9 @@ data:
           "title": "P95 Latency by Route", "type": "timeseries",
           "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" } } },
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-          "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))", "legendFormat": "{{route}}", "refId": "A" }]
+          "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))", "legendFormat": "{{route}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }, "id": 400, "title": "Node.js Runtime", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -886,7 +867,7 @@ data:
             { "expr": "vendure_nodejs_active_resources_total{namespace=\"vendure-production\"}", "legendFormat": "{{pod}} total handles", "refId": "B" }
           ]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 }, "id": 500, "title": "Process Health", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -894,7 +875,7 @@ data:
           "title": "Process CPU", "type": "timeseries",
           "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" } } },
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-          "targets": [{ "expr": "rate(process_cpu_seconds_total{namespace=\"vendure-production\"}[5m])", "legendFormat": "{{pod}}", "refId": "A" }]
+          "targets": [{ "expr": "rate(vendure_process_cpu_seconds_total{namespace=\"vendure-production\"}[5m])", "legendFormat": "{{pod}}", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -902,7 +883,7 @@ data:
           "title": "Process RSS Memory", "type": "timeseries",
           "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" } } },
           "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-          "targets": [{ "expr": "process_resident_memory_bytes{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
+          "targets": [{ "expr": "vendure_process_resident_memory_bytes{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -910,9 +891,9 @@ data:
           "title": "Open File Descriptors", "type": "timeseries",
           "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" } } },
           "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-          "targets": [{ "expr": "process_open_fds{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
+          "targets": [{ "expr": "vendure_process_open_fds{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 }, "id": 600, "title": "Failures", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -929,15 +910,12 @@ data:
           "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "normal" } }, "decimals": 0 } },
           "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [
-            { "expr": "sum(kube_pod_container_status_waiting_reason{namespace=\"vendure-production\",reason=\"CrashLoopBackOff\"}) by (pod)", "legendFormat": "CrashLoop: {{pod}}", "refId": "A" },
+            { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[15m])) by (pod)", "legendFormat": "Restarts/15m: {{pod}}", "refId": "A" },
             { "expr": "sum(kube_pod_container_status_last_terminated_reason{namespace=\"vendure-production\",reason=\"OOMKilled\"}) by (pod)", "legendFormat": "OOMKilled: {{pod}}", "refId": "B" }
           ]
         }
       ]
     }
----
-# === STOREFRONTS ===
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -988,7 +966,7 @@ data:
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "gridPos": { "h": 4, "w": 3, "x": 21, "y": 1 }, "id": 8, "title": "HPA Replicas", "type": "stat", "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] }, "decimals": 0 } }, "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }, "targets": [{ "expr": "sum(kube_horizontalpodautoscaler_status_current_replicas{namespace=\"$namespace\"})", "refId": "A" }] },
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 200, "title": "Errors & Failures", "type": "row" },
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 }, "id": 10, "title": "Pod Restarts", "type": "timeseries", "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 30, "lineWidth": 2, "showPoints": "always", "drawStyle": "bars" }, "decimals": 0 } }, "options": { "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\"}[1h])", "legendFormat": "{{pod}}", "refId": "A" }] },
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 }, "id": 11, "title": "Container Error States", "type": "timeseries", "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "normal" } }, "decimals": 0 } }, "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "sum(kube_pod_container_status_waiting_reason{namespace=\"$namespace\"}) by (reason)", "legendFormat": "Waiting: {{reason}}", "refId": "A" }, { "expr": "sum(kube_pod_container_status_last_terminated_reason{namespace=\"$namespace\"}) by (reason)", "legendFormat": "Terminated: {{reason}}", "refId": "B" }] },
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 }, "id": 11, "title": "Container Error States", "type": "timeseries", "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "normal" } }, "decimals": 0 } }, "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\"}[$__range])) by (pod)", "legendFormat": "Restarts: {{pod}}", "refId": "A" }, { "expr": "sum(kube_pod_container_status_last_terminated_reason{namespace=\"$namespace\"}) by (reason)", "legendFormat": "Terminated: {{reason}}", "refId": "B" }] },
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 300, "title": "CPU & Memory", "type": "row" },
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 }, "id": 20, "title": "CPU per Pod (millicores)", "type": "timeseries", "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" } }, "overrides": [{ "matcher": { "id": "byRegexp", "options": ".*limit" }, "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }, { "id": "custom.fillOpacity", "value": 0 }, { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }] }, "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",container!=\"\",container!=\"POD\"}[5m]) * 1000", "legendFormat": "{{pod}} ({{container}})", "refId": "A" }, { "expr": "kube_pod_container_resource_limits{namespace=\"$namespace\",resource=\"cpu\"} * 1000", "legendFormat": "{{pod}} limit", "refId": "B" }] },
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 }, "id": 21, "title": "Memory per Pod", "type": "timeseries", "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" } }, "overrides": [{ "matcher": { "id": "byRegexp", "options": ".*limit" }, "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }, { "id": "custom.fillOpacity", "value": 0 }, { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }] }, "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "container_memory_working_set_bytes{namespace=\"$namespace\",container!=\"\",container!=\"POD\"}", "legendFormat": "{{pod}} ({{container}})", "refId": "A" }, { "expr": "kube_pod_container_resource_limits{namespace=\"$namespace\",resource=\"memory\"}", "legendFormat": "{{pod}} limit", "refId": "B" }] },
@@ -1000,9 +978,6 @@ data:
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 }, "id": 41, "title": "CPU Throttling %", "type": "timeseries", "fieldConfig": { "defaults": { "unit": "percent", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" }, "min": 0, "max": 100 } }, "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "sum(increase(container_cpu_cfs_throttled_periods_total{namespace=\"$namespace\",container!=\"\",container!=\"POD\"}[5m])) by (pod) / sum(increase(container_cpu_cfs_periods_total{namespace=\"$namespace\",container!=\"\",container!=\"POD\"}[5m])) by (pod) * 100", "legendFormat": "{{pod}}", "refId": "A" }] }
       ]
     }
----
-# === KUBERNETES ===
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -1098,7 +1073,7 @@ data:
           "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
           "targets": [{ "expr": "1 - sum(node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\"}) / sum(node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\"})", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 200, "title": "Node Metrics", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1116,7 +1091,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "node_memory_MemAvailable_bytes", "legendFormat": "{{instance}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 300, "title": "Disk & Load", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1134,7 +1109,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "node_load1", "legendFormat": "{{instance}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }, "id": 400, "title": "Pod Metrics", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1152,7 +1127,7 @@ data:
           "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "count(kube_pod_status_phase == 1) by (phase)", "legendFormat": "{{phase}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }, "id": 500, "title": "Resource Pressure", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1175,7 +1150,7 @@ data:
           "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "sum(kube_pod_container_status_last_terminated_reason) by (reason)", "legendFormat": "{{reason}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 }, "id": 600, "title": "HPA & Throttling", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1198,9 +1173,6 @@ data:
         }
       ]
     }
----
-# === DATABASE ===
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -1280,7 +1252,7 @@ data:
           "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "targets": [{ "expr": "mysql_global_variables_max_connections", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 200, "title": "Performance", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1303,7 +1275,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "rate(mysql_global_status_slow_queries[5m])", "legendFormat": "slow queries/sec", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 300, "title": "Connections", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1332,7 +1304,7 @@ data:
             { "expr": "mysql_global_status_threads_created", "legendFormat": "created (total)", "refId": "C" }
           ]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }, "id": 400, "title": "InnoDB", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1350,7 +1322,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "rate(mysql_global_status_innodb_row_lock_time[5m]) / 1000", "legendFormat": "lock wait time", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }, "id": 500, "title": "Replication", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1362,9 +1334,6 @@ data:
         }
       ]
     }
----
-# === CACHE ===
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -1460,7 +1429,7 @@ data:
           "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "targets": [{ "expr": "redis_memory_max_bytes", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 200, "title": "Performance", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1478,7 +1447,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "rate(redis_commands_duration_seconds_total[5m]) / clamp_min(rate(redis_commands_processed_total[5m]), 0.001)", "legendFormat": "avg latency", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 300, "title": "Efficiency", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1496,7 +1465,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "max", "sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "rate(redis_evicted_keys_total[5m])", "legendFormat": "evicted/sec", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }, "id": 400, "title": "Memory", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1522,9 +1491,6 @@ data:
         }
       ]
     }
----
-# === CLOUDFLARE ===
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -1604,7 +1570,7 @@ data:
           "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "targets": [{ "expr": "sum(rate(cloudflare_zone_threats_total{zone=~\"$zone\"}[5m]))", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }, "id": 200, "title": "Traffic", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1629,7 +1595,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "sum(rate(cloudflare_zone_requests_status{zone=~\"$zone\"}[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 300, "title": "Cache", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -1656,7 +1622,7 @@ data:
           "options": { "legend": { "calcs": ["mean", "min", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "targets": [{ "expr": "sum(rate(cloudflare_zone_bandwidth_cached{zone=~\"$zone\"}[5m])) by (zone) / clamp_min(sum(rate(cloudflare_zone_bandwidth_total{zone=~\"$zone\"}[5m])) by (zone), 0.001)", "legendFormat": "{{zone}}", "refId": "A" }]
         },
-    
+
         { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }, "id": 400, "title": "Security", "type": "row" },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },

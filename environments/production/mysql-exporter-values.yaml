@@ -1,26 +1,30 @@
 # =============================================================================
 # PROMETHEUS MYSQL EXPORTER - PRODUCTION
 # =============================================================================
-# Exports MySQL/RDS metrics to Prometheus.
-# Enables DBConnectionPoolExhaustion and related RDS alerts.
+# Exports MySQL/RDS metrics to Prometheus so the "MySQL RDS" Grafana dashboard
+# and DBConnectionPoolExhaustion / RDS-health alerts have real data.
 #
-# Target RDS: test-5.cbq8i48yyklk.ap-south-1.rds.amazonaws.com:3306
-# Credentials: vendure-secrets (DB_USERNAME / DB_PASSWORD)
+# Target RDS:  vendure-prod-db.cbq8i48yyklk.ap-south-1.rds.amazonaws.com:3306
+# Database:    wow_vendure
+# Credentials: exporter-credentials secret in the monitoring namespace
+#              (synced from AWS Secrets Manager key vendure/prod/database via
+#               monitoring-stack/exporters-externalsecret.yaml)
 #
-# Deploy via ArgoCD: helm/argocd/applications/mysql-exporter.yaml
 # Chart: prometheus-community/prometheus-mysql-exporter
+# App:   argocd/applications/mysql-exporter.yaml
 # =============================================================================
 
 mysql:
-  host: "test-5.cbq8i48yyklk.ap-south-1.rds.amazonaws.com"
+  host: "vendure-prod-db.cbq8i48yyklk.ap-south-1.rds.amazonaws.com"
   port: 3306
   db: "wow_vendure"
   user: "admin"
-  # Password read from existing Kubernetes secret (vendure-secrets)
-  existingPasswordSecret: "vendure-secrets"
-  existingPasswordSecretKey: "DB_PASSWORD"
+  # This chart expects existingPasswordSecret as a {name,key} map (not a string).
+  existingPasswordSecret:
+    name: exporter-credentials
+    key: DB_PASSWORD
 
-# Prometheus ServiceMonitor
+# Scrape via ServiceMonitor (release label makes the kube-prometheus stack pick it up)
 serviceMonitor:
   enabled: true
   labels:
@@ -28,16 +32,13 @@ serviceMonitor:
   interval: 30s
   scrapeTimeout: 10s
 
-# Expose metrics
 service:
   port: 9104
   annotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: "9104"
 
-# Run on app node (no taint — vendure-secrets is in vendure-production namespace,
-# so this exporter needs network access to RDS only, not the secret directly;
-# the secret is mounted via the chart's existingPasswordSecret)
+# Vendure app nodes can reach the RDS security group; run there.
 nodeSelector:
   node-group: app
 
@@ -50,13 +51,3 @@ resources:
   limits:
     cpu: 100m
     memory: 64Mi
-
-# The exporter needs access to vendure-secrets which is in vendure-production namespace.
-# We deploy in monitoring namespace, so we create a copy via ExternalSecret below.
-# See: mysql-exporter-secret.yaml (applied separately)
-#
-# NOTE: If vendure-secrets is not accessible from monitoring namespace,
-# run this once to copy the secret:
-#   kubectl get secret vendure-secrets -n vendure-production -o json \
-#     | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp)' \
-#     | kubectl apply -n monitoring -f -

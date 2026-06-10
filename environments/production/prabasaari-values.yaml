@@ -34,9 +34,9 @@ app:
     repository: prabasaaridesigns
     tag: "prabas-v0.0.16"
     pullPolicy: Always
-  # Sized for t3a.small co-tenancy with vendure-client (384Mi req / 900Mi limit).
-  # Both pods request ~584Mi total — fits inside ~1.4 GiB allocatable on a
-  # t3a.small. Limit is burstable; t3a credits cover short SSR spikes.
+  # Sized for a dedicated t3a.small (~1.4 GiB allocatable). The storefront is
+  # now the only app pod on its node, so it has the whole node to itself.
+  # Limit is burstable; t3a credits cover short SSR spikes.
   resources:
     requests:
       memory: "200Mi"
@@ -118,10 +118,11 @@ app:
   podDisruptionBudget:
     enabled: false
     maxUnavailable: 1
-  # Run on the shared 'vendure-clients' Karpenter NodePool (t3a.small).
-  # Co-tenant with the vendure-client backend pod.
+  # Run on the dedicated 'prabasaari-storefront' Karpenter NodePool
+  # (t3a.small). This storefront gets its own node — no longer co-tenant
+  # with the vendure-client backend.
   nodeSelector:
-    node-group: vendure-clients
+    node-group: prabasaari-storefront
   tolerations: []
   affinity:
     podAntiAffinity:

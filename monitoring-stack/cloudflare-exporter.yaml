@@ -1,0 +1,101 @@
+# =============================================================================
+# Cloudflare exporter (powers the "Cloudflare Edge" dashboard)
+# =============================================================================
+# Pulls Cloudflare Analytics (requests, bandwidth, cache, threats) and exposes
+# cloudflare_zone_* metrics. Deployed by the monitoring-dashboards ArgoCD app.
+#
+# PREREQUISITE (one-time, user action):
+#   Create a Cloudflare API token (Zone.Analytics:Read for the zones) and store
+#   it in AWS Secrets Manager under key  vendure/prod/cloudflare  as:
+#       { "CF_API_TOKEN": "<token>" }
+#   The ExternalSecret below then syncs it into the monitoring namespace.
+#
+# After first deploy, confirm the exporter's metric names match the dashboard
+# (cloudflare_zone_requests_total, cloudflare_zone_bandwidth_total, ...).
+# =============================================================================
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudflare-credentials
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    name: cloudflare-credentials
+    creationPolicy: Owner
+  dataFrom:
+    - extract:
+        key: vendure/prod/cloudflare
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflare-exporter
+  template:
+    metadata:
+      labels:
+        app: cloudflare-exporter
+    spec:
+      containers:
+        - name: cloudflare-exporter
+          image: ghcr.io/lablabs/cloudflare_exporter:0.0.17
+          env:
+            - name: CF_API_TOKEN
+              valueFrom:
+                secretKeyRef: { name: cloudflare-credentials, key: CF_API_TOKEN }
+            # Optional: restrict to specific zones (comma-separated zone IDs).
+            # - name: CF_ZONES
+            #   value: "<zone-id-1>,<zone-id-2>"
+            - name: LISTEN
+              value: ":8080"
+            - name: METRICS_PATH
+              value: "/metrics"
+          ports:
+            - { name: metrics, containerPort: 8080 }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 96Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 59000
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+spec:
+  selector:
+    app: cloudflare-exporter
+  ports:
+    - { name: metrics, port: 8080, targetPort: metrics }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: cloudflare-exporter
+  endpoints:
+    - port: metrics
+      interval: 60s

@@ -37,7 +37,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "(sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+          "expr": "(sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -70,7 +70,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+          "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -100,7 +100,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+          "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -133,7 +133,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
           "refId": "A"
         }
       ],
@@ -232,7 +232,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "1 - ((1 - (sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[30d])) - sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[30d]))) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[30d]))) / (1 - 0.999))",
+          "expr": "1 - ((1 - (sum(rate(http_requests_total{namespace=\"vendure-production\"}[30d])) - sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[30d]))) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[30d]))) / (1 - 0.999))",
           "refId": "A"
         }
       ],
@@ -303,7 +303,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)",
+          "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)",
           "legendFormat": "{{route}}",
           "refId": "A"
         }
@@ -331,7 +331,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)",
+          "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -379,22 +379,22 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
           "legendFormat": "P95",
           "refId": "C"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))",
           "legendFormat": "P99",
           "refId": "D"
         }
@@ -421,7 +421,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))",
           "legendFormat": "{{route}}",
           "refId": "A"
         }
@@ -483,7 +483,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "rate(container_cpu_cfs_throttled_seconds_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[5m])",
+          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[5m])) / clamp_min(sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[5m])), 1)",
           "legendFormat": "{{pod}} / {{container}}",
           "refId": "A"
         }
@@ -519,7 +519,7 @@
           "refId": "A"
         },
         {
-          "expr": "container_spec_memory_limit_bytes{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}",
+          "expr": "kube_pod_container_resource_limits{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\",resource=\"memory\"}",
           "legendFormat": "limit: {{pod}} / {{container}}",
           "refId": "B"
         }
@@ -591,7 +591,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "(sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))",
+          "expr": "(sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) - sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m]))) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))",
           "legendFormat": "Success Rate",
           "refId": "A"
         },
@@ -635,12 +635,12 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[1h])) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[1h])) / (1 - 0.999)",
+          "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[1h])) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[1h])) / (1 - 0.999)",
           "legendFormat": "Burn Rate (1h window)",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[6h])) / sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[6h])) / (1 - 0.999)",
+          "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[6h])) / sum(rate(http_requests_total{namespace=\"vendure-production\"}[6h])) / (1 - 0.999)",
           "legendFormat": "Burn Rate (6h window)",
           "refId": "B"
         }

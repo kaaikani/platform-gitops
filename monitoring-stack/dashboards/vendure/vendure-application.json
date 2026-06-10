@@ -29,7 +29,7 @@
       "title": "Requests/sec", "type": "stat",
       "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m]))", "refId": "A" }]
+      "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m]))", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -37,7 +37,7 @@
       "title": "Error Rate", "type": "stat",
       "fieldConfig": { "defaults": { "unit": "percentunit", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] }, "noValue": "0%" } },
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])), 0.001)", "refId": "A" }]
+      "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])), 0.001)", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -45,7 +45,7 @@
       "title": "P95 Latency", "type": "stat",
       "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] } } },
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -53,7 +53,7 @@
       "title": "P99 Latency", "type": "stat",
       "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] } } },
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [{ "expr": "histogram_quantile(0.99, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
+      "targets": [{ "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -77,7 +77,7 @@
       "title": "Open FDs", "type": "stat",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 500 }, { "color": "red", "value": 900 }] } } },
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [{ "expr": "avg(process_open_fds{namespace=\"vendure-production\"})", "refId": "A" }]
+      "targets": [{ "expr": "avg(vendure_process_open_fds{namespace=\"vendure-production\"})", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -95,7 +95,7 @@
       "title": "Request Rate by Route", "type": "timeseries",
       "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "normal" } } } },
       "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)", "legendFormat": "{{route}}", "refId": "A" }]
+      "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (route)", "legendFormat": "{{route}}", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -110,7 +110,7 @@
         ]
       },
       "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "expr": "sum(rate(vendure_http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }]
+      "targets": [{ "expr": "sum(rate(http_requests_total{namespace=\"vendure-production\"}[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }]
     },
 
     { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }, "id": 300, "title": "Latency", "type": "row" },
@@ -121,10 +121,10 @@
       "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" } } },
       "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
-        { "expr": "histogram_quantile(0.50, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p50", "refId": "A" },
-        { "expr": "histogram_quantile(0.90, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p90", "refId": "B" },
-        { "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p95", "refId": "C" },
-        { "expr": "histogram_quantile(0.99, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p99", "refId": "D" }
+        { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p90", "refId": "B" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p95", "refId": "C" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le))", "legendFormat": "p99", "refId": "D" }
       ]
     },
     {
@@ -133,7 +133,7 @@
       "title": "P95 Latency by Route", "type": "timeseries",
       "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" } } },
       "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(vendure_http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))", "legendFormat": "{{route}}", "refId": "A" }]
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"vendure-production\"}[5m])) by (le, route))", "legendFormat": "{{route}}", "refId": "A" }]
     },
 
     { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }, "id": 400, "title": "Node.js Runtime", "type": "row" },
@@ -178,7 +178,7 @@
       "title": "Process CPU", "type": "timeseries",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" } } },
       "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "expr": "rate(process_cpu_seconds_total{namespace=\"vendure-production\"}[5m])", "legendFormat": "{{pod}}", "refId": "A" }]
+      "targets": [{ "expr": "rate(vendure_process_cpu_seconds_total{namespace=\"vendure-production\"}[5m])", "legendFormat": "{{pod}}", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -186,7 +186,7 @@
       "title": "Process RSS Memory", "type": "timeseries",
       "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" } } },
       "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "expr": "process_resident_memory_bytes{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
+      "targets": [{ "expr": "vendure_process_resident_memory_bytes{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -194,7 +194,7 @@
       "title": "Open File Descriptors", "type": "timeseries",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" } } },
       "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-      "targets": [{ "expr": "process_open_fds{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
+      "targets": [{ "expr": "vendure_process_open_fds{namespace=\"vendure-production\"}", "legendFormat": "{{pod}}", "refId": "A" }]
     },
 
     { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 }, "id": 600, "title": "Failures", "type": "row" },
@@ -213,7 +213,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "normal" } }, "decimals": 0 } },
       "options": { "legend": { "calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
-        { "expr": "sum(kube_pod_container_status_waiting_reason{namespace=\"vendure-production\",reason=\"CrashLoopBackOff\"}) by (pod)", "legendFormat": "CrashLoop: {{pod}}", "refId": "A" },
+        { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"vendure-production\",container=~\"vendure|vendure-worker\"}[15m])) by (pod)", "legendFormat": "Restarts/15m: {{pod}}", "refId": "A" },
         { "expr": "sum(kube_pod_container_status_last_terminated_reason{namespace=\"vendure-production\",reason=\"OOMKilled\"}) by (pod)", "legendFormat": "OOMKilled: {{pod}}", "refId": "B" }
       ]
     }
