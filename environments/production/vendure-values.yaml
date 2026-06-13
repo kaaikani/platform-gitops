@@ -96,7 +96,7 @@ vendure:
     APP_ENV: production
     SUPERADMIN_USERNAME: superadmin
     # Apple OAuth Bundle IDs (not sensitive — public iOS bundle identifiers)
-    APPLE_CLIENT_ID_SOUTHMITHAI: "com.kaaikani.kaaikani"
+    APPLE_CLIENT_ID_SOUTHMITHAI: "com.southmithai.southmithai"
     APPLE_CLIENT_ID_SWADKERALA: "com.Swadkerala.Swadkerala"
     APPLE_CLIENT_ID_KAAIKANIDIRECT: "com.kaaikanidirect.kaaikanidirect"
     APPLE_CLIENT_ID_DEFAULT: "com.kaaikani.kaaikani"
