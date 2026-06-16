@@ -117,18 +117,25 @@ vendure:
   # -------------------------------------------------------------------------
   # Startup: handles slow boot (DB migrations, admin UI compile). Liveness and
   #   readiness are DISABLED until startup succeeds → no premature kills.
-  # Liveness: only restarts truly dead pods. Very tolerant (5 min) because
-  #   Vendure /health does a DB query — brief 503s during load are normal.
-  # Readiness: controls traffic routing. More sensitive — removes pod from
-  #   ALB quickly if unhealthy, adds back when recovered. No restart.
+  # Liveness: only restarts TRULY dead pods. Uses a TCP port check (NOT /health)
+  #   on purpose. Verified 2026-06-16: RDS is calm (66/67 conns idle, no slow/
+  #   locked queries), yet /health returns "database down: timeout 1000ms" — that
+  #   is the Node event loop freezing (GC/sync work) tripping the 1000ms timer,
+  #   NOT the DB. An httpGet /health liveness therefore SIGKILLs healthy pods on
+  #   a brief freeze, dropping capacity and cascading. A TCP check confirms the
+  #   process is alive without depending on the event loop completing a DB query.
+  #   Transient freezes are handled by readiness (pulls from ALB, no restart).
+  # Readiness: controls traffic routing. KEEPS /health (DB-aware) — correctly
+  #   removes a struggling pod from the ALB and adds it back when recovered.
   # -------------------------------------------------------------------------
   livenessProbe:
     enabled: true
-    path: /health
+    tcpSocket: true # check port is open; do NOT hit /health (see note above)
+    path: /health # retained for reference; ignored when tcpSocket=true
     initialDelaySeconds: 120
-    periodSeconds: 30 # check every 30s instead of 15s (less pressure on event loop)
+    periodSeconds: 30
     timeoutSeconds: 10
-    failureThreshold: 10 # 10 consecutive failures = 5 min before kill (was 5 = 75s)
+    failureThreshold: 10 # 10 consecutive failures = 5 min before kill
   readinessProbe:
     enabled: true
     path: /health

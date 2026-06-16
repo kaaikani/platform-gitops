@@ -371,9 +371,14 @@ spec:
 
           {{- if .Values.vendure.livenessProbe.enabled }}
           livenessProbe:
+            {{- if .Values.vendure.livenessProbe.tcpSocket }}
+            tcpSocket:
+              port: server
+            {{- else }}
             httpGet:
               path: {{ .Values.vendure.livenessProbe.path }}
               port: server
+            {{- end }}
             initialDelaySeconds: {{ .Values.vendure.livenessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.vendure.livenessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.vendure.livenessProbe.timeoutSeconds }}
