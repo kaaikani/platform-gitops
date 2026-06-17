@@ -387,9 +387,14 @@ spec:
 
           {{- if .Values.vendure.readinessProbe.enabled }}
           readinessProbe:
+            {{- if .Values.vendure.readinessProbe.tcpSocket }}
+            tcpSocket:
+              port: server
+            {{- else }}
             httpGet:
               path: {{ .Values.vendure.readinessProbe.path }}
               port: server
+            {{- end }}
             initialDelaySeconds: {{ .Values.vendure.readinessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.vendure.readinessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.vendure.readinessProbe.timeoutSeconds }}

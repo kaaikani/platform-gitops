@@ -125,8 +125,23 @@ vendure:
   #   a brief freeze, dropping capacity and cascading. A TCP check confirms the
   #   process is alive without depending on the event loop completing a DB query.
   #   Transient freezes are handled by readiness (pulls from ALB, no restart).
-  # Readiness: controls traffic routing. KEEPS /health (DB-aware) — correctly
-  #   removes a struggling pod from the ALB and adds it back when recovered.
+  # Readiness: controls traffic routing. CHANGED to a TCP port check on
+  #   2026-06-17 (was DB-aware /health). Same reasoning as liveness above:
+  #   verified again during the 2026-06-17 incident that RDS was calm (CPU
+  #   ~30%, 552 CPU credits, 64/170 conns, <1ms read latency) while /health
+  #   reported "database down: timeout 1000ms" — a FALSE signal from a Node
+  #   event-loop freeze, not the DB. With only 2 schedulable vendure pods (2×
+  #   c5a.large, 1 pod/node, no 3rd node-group=vendure node), a DB-aware
+  #   readiness pulled a healthy-but-briefly-frozen pod from the ALB, dumping
+  #   100% of traffic onto the other pod, which then froze too → flap +
+  #   load-concentration cascade (idle pod 9hxk6 logged 429 false /health 503s
+  #   in 1h and was pulled; all traffic pinned on rjmmw at 1294m CPU → crash
+  #   exit 1). A TCP check keeps both pods in rotation serving degraded rather
+  #   than concentrating load there is no capacity to absorb. Boot is still
+  #   gated by the DB-aware startupProbe; truly-dead processes are still
+  #   restarted by the TCP livenessProbe. Real fix is app-side: index
+  #   fulfillment.customFieldsDeliverypersonid + raise Vendure's 1000ms health
+  #   timeout (delivery-partner queries are the load source).
   # -------------------------------------------------------------------------
   livenessProbe:
     enabled: true
@@ -138,7 +153,8 @@ vendure:
     failureThreshold: 10 # 10 consecutive failures = 5 min before kill
   readinessProbe:
     enabled: true
-    path: /health
+    tcpSocket: true # port-open check; do NOT hit DB-aware /health (see note above)
+    path: /health # retained for reference; ignored when tcpSocket=true
     initialDelaySeconds: 0 # startup probe handles boot; no extra delay needed
     periodSeconds: 10
     timeoutSeconds: 5
@@ -422,7 +438,13 @@ ingress:
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
-    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    # unhealthy-threshold 2→4 (2026-06-17): with target-type=ip the ALB runs its
+    # OWN /health probe and stops routing independently of K8s readiness. At 2×15s
+    # it deregistered a target after only 30s of a (false) "DB down" freeze, undoing
+    # the TCP-readiness change above and re-creating the load-concentration cascade.
+    # 4×15s = 60s tolerates a transient event-loop freeze (both pods keep serving
+    # degraded); healthy-threshold stays 2 (30s) for fast re-add on recovery.
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "4"
     # Production specific
     alb.ingress.kubernetes.io/tags: Environment=production
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
