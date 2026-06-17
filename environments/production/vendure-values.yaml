@@ -125,23 +125,20 @@ vendure:
   #   a brief freeze, dropping capacity and cascading. A TCP check confirms the
   #   process is alive without depending on the event loop completing a DB query.
   #   Transient freezes are handled by readiness (pulls from ALB, no restart).
-  # Readiness: controls traffic routing. CHANGED to a TCP port check on
-  #   2026-06-17 (was DB-aware /health). Same reasoning as liveness above:
-  #   verified again during the 2026-06-17 incident that RDS was calm (CPU
-  #   ~30%, 552 CPU credits, 64/170 conns, <1ms read latency) while /health
-  #   reported "database down: timeout 1000ms" — a FALSE signal from a Node
-  #   event-loop freeze, not the DB. With only 2 schedulable vendure pods (2×
-  #   c5a.large, 1 pod/node, no 3rd node-group=vendure node), a DB-aware
-  #   readiness pulled a healthy-but-briefly-frozen pod from the ALB, dumping
-  #   100% of traffic onto the other pod, which then froze too → flap +
-  #   load-concentration cascade (idle pod 9hxk6 logged 429 false /health 503s
-  #   in 1h and was pulled; all traffic pinned on rjmmw at 1294m CPU → crash
-  #   exit 1). A TCP check keeps both pods in rotation serving degraded rather
-  #   than concentrating load there is no capacity to absorb. Boot is still
-  #   gated by the DB-aware startupProbe; truly-dead processes are still
-  #   restarted by the TCP livenessProbe. Real fix is app-side: index
-  #   fulfillment.customFieldsDeliverypersonid + raise Vendure's 1000ms health
-  #   timeout (delivery-partner queries are the load source).
+  # Readiness: controls traffic routing. KEEPS /health (DB-aware). A TCP-only
+  #   readiness was tried 2026-06-17 and REVERTED the same day — it BACKFIRED:
+  #   with only 2 schedulable pods, a hard event-loop freeze (port open but
+  #   /health TIMEOUT) left the frozen pod marked Ready + in the ALB, serving
+  #   timeouts to ~50% of traffic until the ALB's own /health pulled it at 60s
+  #   → real outage. Lesson: at 2-pod capacity, pulling a frozen pod fast and
+  #   routing 100% to the healthy pod (one c5a.large absorbs both short-term at
+  #   ~750-1030m of the 2000m limit) is LESS bad than serving 50% errors. So
+  #   readiness stays DB-aware /health. (Liveness stays TCP — see note above —
+  #   because a SIGKILL+reschedule is far more disruptive than an ALB pull.)
+  #   The load-concentration cascade this was meant to avoid is only truly
+  #   fixed app-side: index fulfillment.customFieldsDeliverypersonid + raise
+  #   Vendure's 1000ms DB-health timeout (delivery-partner queries are the load
+  #   source). ALB unhealthy-threshold kept at 4 (60s) to let in-flight drain.
   # -------------------------------------------------------------------------
   livenessProbe:
     enabled: true
@@ -153,8 +150,8 @@ vendure:
     failureThreshold: 10 # 10 consecutive failures = 5 min before kill
   readinessProbe:
     enabled: true
-    tcpSocket: true # port-open check; do NOT hit DB-aware /health (see note above)
-    path: /health # retained for reference; ignored when tcpSocket=true
+    tcpSocket: false # DB-aware /health — pull a frozen pod fast (see note above; TCP backfired 2026-06-17)
+    path: /health
     initialDelaySeconds: 0 # startup probe handles boot; no extra delay needed
     periodSeconds: 10
     timeoutSeconds: 5
