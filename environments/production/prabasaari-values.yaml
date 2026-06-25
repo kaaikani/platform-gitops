@@ -32,7 +32,7 @@ app:
   replicaCount: 1
   image:
     repository: prabasaaridesigns
-    tag: "prabas-v0.0.21"
+    tag: "prabas-v0.1.0"
     pullPolicy: Always
   # Sized for a dedicated t3a.small (~1287Mi app-allocatable after daemonsets).
   # Both HPA replicas must fit on the SAME node — no 2nd node is ever created.
