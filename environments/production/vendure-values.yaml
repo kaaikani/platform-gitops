@@ -80,10 +80,18 @@ vendure:
       memory: "1800Mi"
       cpu: "600m"
     limits:
-      memory: "2560Mi"
+      memory: "3Gi"
       cpu: "2000m"
+  #   - 2026-06-30: limit 2560Mi → 3Gi, heap 1800 → 2048 as an EMERGENCY STOPGAP
+  #     for repeated heap-OOM (exit 139) crashes. Root cause is NOT sizing: the
+  #     reporting PWA's fetchAllOrders fires unbounded parallel `orders{lines}`
+  #     pulls that load thousands of order lines into the server heap at once.
+  #     This bump only reduces crash frequency — the real fix is bounding that
+  #     client-side fan-out / moving report aggregation server-side. requests
+  #     stay at 1800Mi so node packing (c5a.large) is unchanged; only the burst
+  #     ceiling grows.
   # Node.js V8 heap cap (in MiB). Keep ≤ 70% of resources.limits.memory.
-  maxOldSpaceSize: 1800
+  maxOldSpaceSize: 2048
   service:
     type: ClusterIP
     ports:
