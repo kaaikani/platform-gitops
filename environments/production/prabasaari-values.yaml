@@ -34,26 +34,23 @@ app:
     repository: prabasaaridesigns
     tag: "prabas-v0.1.0"
     pullPolicy: Always
-  # Sized for a dedicated t3a.small (~1287Mi app-allocatable after daemonsets).
-  # Both HPA replicas must fit on the SAME node — no 2nd node is ever created.
-  # 2 x 512Mi request = 1024Mi <= 1287Mi budget, leaving headroom. The 1024Mi
-  # limit lets a single pod burst into the node's free memory; t3a credits
-  # cover short SSR CPU spikes.
+  # Sized like the sibling storefronts on the shared 'storefront' capacity
+  # (256Mi request vs ~90Mi observed working set; 768Mi limit for SSR bursts).
   resources:
     requests:
-      memory: "512Mi"
+      memory: "256Mi"
       cpu: "100m"
     limits:
-      memory: "1024Mi"
-      cpu: "1000m"
-  # maxSurge:0 / maxUnavailable:1 — a rolling deploy replaces pods in place and
-  # NEVER creates an extra (surge) pod, so it can't overflow the single node and
-  # trigger a 2nd t3a.small. (Chart defaults to rolling surge otherwise.)
+      memory: "768Mi"
+      cpu: "500m"
+  # Surge rollout: on shared capacity there is no single-node budget to protect,
+  # so deploys create the replacement pod first and only then remove the old one
+  # (zero-downtime, combined with the ALB pod readiness gate on the namespace).
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: 1
+      maxUnavailable: 0
   service:
     type: ClusterIP
     port: 80
@@ -100,15 +97,13 @@ app:
     periodSeconds: 10
     timeoutSeconds: 10
     failureThreshold: 30
-  # HPA: scales only on real load. 150% of 100m request = 150m sustained
-  # before adding a 2nd pod. The 2nd replica co-locates on the SAME t3a.small
-  # (512Mi x 2 fits the node budget) — Karpenter does NOT add a node. Slightly
-  # more responsive than vendure-client (200%) because Next.js SSR gets
-  # latency-sensitive faster under sustained CPU pressure.
+  # HPA: min 2 replicas — this is a client production site on shared capacity
+  # (which allows spot), so it must survive a single node loss. 150% of 100m
+  # request = 150m sustained before adding a 3rd pod.
   autoscaling:
     enabled: true
-    minReplicas: 1
-    maxReplicas: 2
+    minReplicas: 2
+    maxReplicas: 3
     targetCPUUtilizationPercentage: 150
     behavior:
       scaleUp:
@@ -123,22 +118,27 @@ app:
           - type: Pods
             value: 1
             periodSeconds: 120
-  # Single replica + HPA min=1 means PDB at minAvailable=1 would block voluntary
-  # evictions. Disable for parity with vendure-client.
+  # With 2 replicas a PDB keeping at most 1 pod down protects the site during
+  # node drains / spot reclaims / cluster upgrades.
   podDisruptionBudget:
-    enabled: false
+    enabled: true
     maxUnavailable: 1
-  # Run on the dedicated 'prabasaari-storefront' Karpenter NodePool
-  # (t3a.small). This storefront gets its own node — no longer co-tenant
-  # with the vendure-client backend.
+  # Shared 'storefront' capacity (managed storefront node + Karpenter
+  # 'storefront' NodePool) — replaces the dedicated prabasaari-storefront
+  # t3a.small NodePool (cost merge, 2026-07-03).
   nodeSelector:
-    node-group: prabasaari-storefront
+    node-group: storefront
   tolerations: []
-  # No pod anti-affinity: the 2nd HPA replica is MEANT to co-locate on the same
-  # single t3a.small. Spreading across hosts would force Karpenter to add a 2nd
-  # node, which is exactly what we want to avoid here.
+  # Soft spread: prefer replicas on different nodes when >1 storefront node
+  # exists, but never leave a pod Pending over it (ScheduleAnyway).
   affinity: {}
-  topologySpreadConstraints: []
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app: prabasaari
 # =============================================================================
 # INGRESS — shared ALB (group.name: vendure-shared)
 # Storefront serves '/' on prabhasaaridesigns.com.
