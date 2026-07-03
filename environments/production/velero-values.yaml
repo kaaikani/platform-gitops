@@ -60,7 +60,10 @@ schedules:
       storageLocation: default
       volumeSnapshotLocations:
         - default
-      ttl: 336h
+      # 7-day retention (was 14d). Snapshotted PVs are only monitoring/tooling
+      # disks (Prometheus, Grafana, Loki, Alertmanager) — business data lives in
+      # RDS + S3 which have their own backups. 7d halves EBS snapshot cost.
+      ttl: 168h
 
 # Do not deploy node agent (use EBS snapshots, not file-system backup)
 deployNodeAgent: false

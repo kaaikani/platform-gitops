@@ -2,7 +2,7 @@
 # VELERO BACKUP SCHEDULE
 # =============================================================================
 # Daily backup schedule: 2 AM UTC (7:30 AM IST)
-# Retention: 14 days
+# Retention: 7 days
 # Compression: Enabled (via Velero config)
 #
 # This schedule is created automatically by Velero Helm chart,
@@ -54,8 +54,8 @@ spec:
     volumeSnapshotLocations:
       - default
     
-    # TTL (retention) - 14 days (matches velero-values.yaml)
-    ttl: 336h
+    # TTL (retention) - 7 days (matches velero-values.yaml)
+    ttl: 168h
     
     # Metadata
     metadata:
@@ -64,14 +64,14 @@ spec:
         environment: production
       annotations:
         description: "Daily backup of all production namespaces"
-        retention: "14 days"
+        retention: "7 days"
 
 ---
 # =============================================================================
 # BACKUP RETENTION POLICY (via Velero config)
 # =============================================================================
 # Velero automatically deletes backups older than TTL
-# This is configured in the Schedule above (ttl: 336h = 14 days)
+# This is configured in the Schedule above (ttl: 168h = 7 days)
 #
 # Additional retention can be configured via Velero's backup retention settings
 # =============================================================================
