@@ -103,6 +103,9 @@ vendure:
     NODE_ENV: production
     APP_ENV: production
     SUPERADMIN_USERNAME: superadmin
+    # Abandoned-cart sweep interval (minutes). Non-secret config toggle.
+    # Testing uses 1; production runs the sweep every 30 min.
+    ABANDONED_CART_SWEEP_EVERY_MIN: "30"
     # Apple OAuth Bundle IDs (not sensitive — public iOS bundle identifiers)
     APPLE_CLIENT_ID_SOUTHMITHAI: "com.southmithai.southmithai"
     APPLE_CLIENT_ID_SWADKERALA: "com.Swadkerala.Swadkerala"

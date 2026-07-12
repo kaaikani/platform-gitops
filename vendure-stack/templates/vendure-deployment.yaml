@@ -348,6 +348,21 @@ spec:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: GOOGLE_CLIENT_ID
 
+            # MSG91 (SMS/OTP provider) auth key — synced from AWS Secrets Manager
+            # (vendure/prod/integrations) via External Secrets Operator.
+            - name: MSG91_AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: MSG91_AUTH_KEY
+                  optional: true
+
+            # Abandoned-cart sweep interval (minutes) — plain config, not a secret.
+            {{- if .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN }}
+            - name: ABANDONED_CART_SWEEP_EVERY_MIN
+              value: {{ .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN | quote }}
+            {{- end }}
+
             # Apple OAuth Bundle IDs (plain env — not sensitive, public iOS identifiers)
             {{- if .Values.vendure.env.APPLE_CLIENT_ID_SOUTHMITHAI }}
             - name: APPLE_CLIENT_ID_SOUTHMITHAI
