@@ -464,6 +464,13 @@ ingress:
   hosts:
     - host: kaaikani.co.in
       paths:
+        # Vendure Dashboard (v3.3+) — served by the main server process on
+        # port 80 at /dashboard. Listed explicitly (ALB evaluates more
+        # specific paths before the catch-all '/' below).
+        - path: /dashboard
+          pathType: Prefix
+          service: vendure
+          port: 80
         - path: /
           pathType: Prefix
           service: vendure
