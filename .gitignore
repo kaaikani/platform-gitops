@@ -6,3 +6,10 @@
 .env.*
 *.pem
 *.key
+
+# Terraform — never commit state (plaintext secrets), plans, or provider binaries
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
