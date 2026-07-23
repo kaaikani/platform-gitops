@@ -4,3 +4,9 @@ resource "aws_internet_gateway" "prod" {
     Name = "vendure-production-igw"
   }
 }
+resource "aws_internet_gateway" "test_igw" {
+  vpc_id = aws_vpc.test.id
+  tags = {
+    Name = "test_IGW"
+  }
+}

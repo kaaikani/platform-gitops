@@ -55,3 +55,41 @@ resource "aws_subnet" "private_3c" {
     Name = "vendure-production-subnet-private3-ap-south-1c"
   }
 }
+
+
+resource "aws_subnet" "test_public_1a" {
+  vpc_id                  = aws_vpc.test.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "ap-south-1a"
+  map_public_ip_on_launch = false
+  tags = {
+    Name                     = "pub_sn"
+  }
+}
+resource "aws_subnet" "test_public_1b" {
+  vpc_id                  = aws_vpc.test.id
+  cidr_block              = "10.0.3.0/24"
+  availability_zone       = "ap-south-1b"
+  map_public_ip_on_launch = false
+  tags = {  
+    Name                     = "pub_sn_2"
+  } 
+}
+resource "aws_subnet" "test_private_1a" {
+  vpc_id                  = aws_vpc.test.id
+  cidr_block              = "10.0.4.0/24"
+  availability_zone       = "ap-south-1a" 
+  map_public_ip_on_launch = false
+  tags = {
+    Name = "pri_sn_2"  
+  }
+}
+resource "aws_subnet" "test_private_1b" {
+  vpc_id = aws_vpc.test.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "ap-south-1b"
+  map_public_ip_on_launch = false
+  tags = {
+    Name = "pri_sn"
+  }
+}
