@@ -11,7 +11,6 @@ terraform {
     bucket       = "kaaikani-tfstate-149536454380"
     key          = "prod/terraform.tfstate"
     region       = "ap-south-1"
-    profile      = "terraform-admin"
     encrypt      = true
     use_lockfile = true
   }

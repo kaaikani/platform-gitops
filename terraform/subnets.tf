@@ -63,7 +63,7 @@ resource "aws_subnet" "test_public_1a" {
   availability_zone       = "ap-south-1a"
   map_public_ip_on_launch = false
   tags = {
-    Name                     = "pub_sn"
+    Name = "pub_sn"
   }
 }
 resource "aws_subnet" "test_public_1b" {
@@ -71,23 +71,23 @@ resource "aws_subnet" "test_public_1b" {
   cidr_block              = "10.0.3.0/24"
   availability_zone       = "ap-south-1b"
   map_public_ip_on_launch = false
-  tags = {  
-    Name                     = "pub_sn_2"
-  } 
+  tags = {
+    Name = "pub_sn_2"
+  }
 }
 resource "aws_subnet" "test_private_1a" {
   vpc_id                  = aws_vpc.test.id
   cidr_block              = "10.0.4.0/24"
-  availability_zone       = "ap-south-1a" 
+  availability_zone       = "ap-south-1a"
   map_public_ip_on_launch = false
   tags = {
-    Name = "pri_sn_2"  
+    Name = "pri_sn_2"
   }
 }
 resource "aws_subnet" "test_private_1b" {
-  vpc_id = aws_vpc.test.id
-  cidr_block = "10.0.2.0/24"
-  availability_zone = "ap-south-1b"
+  vpc_id                  = aws_vpc.test.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "ap-south-1b"
   map_public_ip_on_launch = false
   tags = {
     Name = "pri_sn"
