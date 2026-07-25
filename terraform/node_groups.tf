@@ -7,7 +7,7 @@ module "app_ng" {
 
   cluster_name    = aws_eks_cluster.prod_eks.name
   node_group_name = "vendure-prod-app-ng-x86"
-  node_role_arn   = "arn:aws:iam::149536454380:role/vendure-prod-eks-node-role"
+  node_role_arn   = aws_iam_role.eks_node.arn
   subnet_ids      = [aws_subnet.public_1a.id, aws_subnet.public_2b.id, aws_subnet.public_3c.id]
   instance_types  = ["t3a.medium"]
   min_size        = 0
@@ -22,7 +22,7 @@ module "platform_ng" {
 
   cluster_name    = aws_eks_cluster.prod_eks.name
   node_group_name = "vendure-prod-platform-ng"
-  node_role_arn   = "arn:aws:iam::149536454380:role/vendure-prod-eks-node-role"
+  node_role_arn   = aws_iam_role.eks_node.arn
   subnet_ids      = [aws_subnet.public_1a.id, aws_subnet.public_2b.id, aws_subnet.public_3c.id]
   instance_types  = ["t3a.large"]
   min_size        = 1
@@ -37,7 +37,7 @@ module "storefront_ng" {
 
   cluster_name    = aws_eks_cluster.prod_eks.name
   node_group_name = "vendure-prod-storefront-ng-medium"
-  node_role_arn   = "arn:aws:iam::149536454380:role/vendure-prod-eks-node-role"
+  node_role_arn   = aws_iam_role.eks_node.arn
   subnet_ids      = [aws_subnet.public_1a.id, aws_subnet.public_2b.id, aws_subnet.public_3c.id]
   instance_types  = ["t3a.medium"]
   min_size        = 1

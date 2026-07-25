@@ -1,4 +1,8 @@
 resource "aws_db_instance" "prod_db" {
+  lifecycle {
+    prevent_destroy = true # guard: Terraform refuses to destroy/replace prod DB
+  }
+
   identifier                      = "vendure-prod-db"
   engine                          = "mysql"
   engine_version                  = "8.0.45"

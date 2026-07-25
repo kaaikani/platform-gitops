@@ -1,8 +1,12 @@
 resource "aws_eks_cluster" "prod_eks" {
   name                          = "vendure-prod-cluster"
   version                       = "1.35"
-  role_arn                      = "arn:aws:iam::149536454380:role/vendure-production-eks-cluster-role"
-  bootstrap_self_managed_addons = false # ← ADD (stops replacement #1)
+  role_arn                      = aws_iam_role.eks_cluster.arn
+  bootstrap_self_managed_addons = false
+
+  lifecycle {
+    prevent_destroy = true # guard: never destroy/replace the prod EKS control plane
+  }
 
   vpc_config {
     subnet_ids              = [aws_subnet.public_1a.id, aws_subnet.public_2b.id, aws_subnet.public_3c.id]

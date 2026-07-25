@@ -8,6 +8,10 @@ resource "aws_vpc" "test" {
   }
 }
 resource "aws_vpc" "prod" {
+  lifecycle {
+    prevent_destroy = true # guard: never destroy the production VPC
+  }
+
   cidr_block           = "10.10.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
