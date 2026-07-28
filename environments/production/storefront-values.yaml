@@ -191,7 +191,10 @@ priorityClassName: ""
 #     kubectl create secret generic storefront-secrets \
 #       --namespace storefront-production \
 #       --from-literal=GOOGLE_CLIENT_ID='<value>' \
-#       --from-literal=GOOGLE_CLIENT_SECRET='<value>'
+#       --from-literal=GOOGLE_CLIENT_SECRET='<value>' \
+#       --from-literal=GOOGLE_MAPS_API_KEY='<value>'
+#     (Secret is managed out-of-band — secrets.create is false and the ArgoCD
+#      Application ignores Secret /data, so values never land in this repo.)
 # [ ] Cloudflare DNS: Add CNAME kaaikanistore.com -> ALB DNS name
 # [ ] Verify image exists: aws ecr describe-images --repository-name kaaikanistore
 #

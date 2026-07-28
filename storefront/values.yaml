@@ -64,6 +64,7 @@ storefront:
     HYGRAPH_ENDPOINT: "https://ap-south-1.cdn.hygraph.com/content/cm5c7pe3p012407uvvb6u1yln/master"
 
   # Secrets configuration
+  # Expected keys: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_MAPS_API_KEY
   secrets:
     create: false
     existingSecret: "storefront-secrets"

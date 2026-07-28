@@ -77,6 +77,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "storefront.secretName" . }}
                   key: GOOGLE_CLIENT_SECRET
+            # Maps JavaScript API key — read by the root loader and re-exported
+            # to the browser via window.ENV (address map picker / pincode modal).
+            # Restrict it by HTTP referrer in GCP; it is public once served.
+            - name: GOOGLE_MAPS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "storefront.secretName" . }}
+                  key: GOOGLE_MAPS_API_KEY
           resources:
             {{- toYaml .Values.storefront.resources | nindent 12 }}
           {{- if .Values.storefront.livenessProbe.enabled }}
