@@ -76,8 +76,10 @@ spec:
   disruption:
     # Conservative consolidation for monitoring
     consolidationPolicy: WhenEmpty
-    # Wait 24 hours before consolidating
-    consolidateAfter: 24h
+    # Empty node ah 5 minutes la remove pannum. 24h vechirundhom -> oru naal
+    # full ah காலி node ku bill vandhuchu. WhenEmpty dhaan, so pods irukura
+    # node ah idhu thoda maatadhu -- disruption risk illa.
+    consolidateAfter: 5m
 
   # Priority weight (lower priority than application)
   weight: 10
