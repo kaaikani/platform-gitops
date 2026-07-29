@@ -12,4 +12,8 @@
 *.tfstate
 *.tfstate.*
 *.tfplan
+# `terraform plan -out=tfplan` writes a file with NO extension, so *.tfplan
+# misses it. The plan file holds every resource attribute -- never commit it.
+tfplan
+tfplan.*
 crash.log
