@@ -3,20 +3,42 @@ resource "aws_db_instance" "prod_db" {
     prevent_destroy = true # guard: Terraform refuses to destroy/replace prod DB
   }
 
-  identifier                      = "vendure-prod-db"
-  engine                          = "mysql"
-  engine_version                  = "8.0.45"
-  instance_class                  = "db.t3.medium"
-  allocated_storage               = 20
-  storage_type                    = "gp3"
-  storage_encrypted               = true
-  username                        = "admin"
-  port                            = 3306
-  multi_az                        = false
-  publicly_accessible             = false
-  db_subnet_group_name            = "vendure-prod-db-subnet"
-  parameter_group_name            = "aws-vendure-pg"
-  backup_retention_period         = 1
+  identifier        = "vendure-prod-db"
+  engine            = "mysql"
+  engine_version    = "8.0.45"
+  instance_class    = "db.t3.medium"
+  allocated_storage = 20
+  # 20 GB la ~10 GB already use aagirukku (50%). Storage full aana RDS read-only
+  # aagi production down aagum. Idhu adha thadukkum -- AWS thaana 30 GB varaikum
+  # valarthidum. Grow aagala na cost ZERO. Aana kavanam: RDS storage kootha
+  # mattum dhaan mudiyum, kammi panna mudiyadhu (dump/restore thaan vazhi).
+  max_allocated_storage = 30
+  storage_type          = "gp3"
+  storage_encrypted     = true
+  username              = "admin"
+  port                  = 3306
+  multi_az              = false
+  publicly_accessible   = false
+  db_subnet_group_name  = "vendure-prod-db-subnet"
+  parameter_group_name  = "aws-vendure-pg"
+  # 1 -> 3. Naal ku 1+ deploy pannurom, 42% Fri/Sat/Sun la. 1 naal vechirundha
+  # velli deploy corruption ah thinkal kaalai kandupidichaalum restore point
+  # illa. 3 naal andha weekend gap ah cover pannum -- adhu dhaan minimum.
+  # Multi-AZ vendam nu decide panniruka, so backup dhaan namma ore recovery.
+  # Non-zero se non-zero maathradhu la outage illa (0 <-> non-zero mattum reboot).
+  # Data 10 GB, AWS free backup allowance 20 GB -> cost $0.
+  backup_retention_period = 3
+
+  # Windows UTC la. Munnadi maintenance "wed:02:36-wed:03:06" UTC = Buthan kaalai
+  # 08:06 IST -- ecommerce ku business hours. Maintenance window la AWS OS patching
+  # + minor engine auto-upgrade pannum, adhu single-AZ la REBOOT = downtime. Adhaan
+  # rendayum India kammi-traffic neram (1-4 AM IST) ku nagarthirukom.
+  #   backup      20:00-20:30 UTC = dhinam 01:30-02:00 AM IST
+  #   maintenance tue:21:30-22:30 UTC = Buthan 03:00-04:00 AM IST
+  # Rendum overlap aagakoodadhu -- AWS reject pannum. Window maathradhu zero downtime.
+  backup_window      = "20:00-20:30"
+  maintenance_window = "tue:21:30-tue:22:30"
+
   deletion_protection             = true
   vpc_security_group_ids          = [aws_security_group.rds.id]
   copy_tags_to_snapshot           = true

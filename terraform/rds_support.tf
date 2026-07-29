@@ -16,6 +16,15 @@ resource "aws_db_parameter_group" "prod" {
     value        = "1"
     apply_method = "immediate"
   }
+  # slow_query_log=1 irundhum CloudWatch la slowquery log group varala -- yenna
+  # log_output default 'TABLE'. Adhu mysql.slow_log TABLE ku ezhudhi DB storage
+  # ah saapdudhu, CloudWatch ku onnum pogaadhu. FILE aana thaan export velai
+  # seiyum. Dynamic parameter -> reboot illa.
+  parameter {
+    name         = "log_output"
+    value        = "FILE"
+    apply_method = "immediate"
+  }
   parameter {
     name         = "max_allowed_packet"
     value        = "67108864"

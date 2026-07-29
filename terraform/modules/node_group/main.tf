@@ -19,4 +19,12 @@ resource "aws_eks_node_group" "this" {
 
   labels = var.labels
   tags   = var.tags
+
+  # desired_size is owned at RUNTIME by the cluster-autoscaler / Karpenter / HPA,
+  # not by Terraform. Without this, every apply resets the count back to the value
+  # in node_groups.tf and terminates any node the autoscaler had added.
+  # min_size / max_size stay managed here on purpose — those are the guardrails.
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
 }
