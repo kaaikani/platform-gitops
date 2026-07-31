@@ -19,8 +19,10 @@ resource "aws_db_instance" "prod_db" {
   port                  = 3306
   multi_az              = false
   publicly_accessible   = false
-  db_subnet_group_name  = "vendure-prod-db-subnet"
-  parameter_group_name  = "aws-vendure-pg"
+  # Resource references, not name strings -- Terraform now knows the dependency
+  # graph, and the same code can build these in an empty region (DR).
+  db_subnet_group_name = aws_db_subnet_group.prod.name
+  parameter_group_name = aws_db_parameter_group.prod.name
   # 1 -> 3. Naal ku 1+ deploy pannurom, 42% Fri/Sat/Sun la. 1 naal vechirundha
   # velli deploy corruption ah thinkal kaalai kandupidichaalum restore point
   # illa. 3 naal andha weekend gap ah cover pannum -- adhu dhaan minimum.
