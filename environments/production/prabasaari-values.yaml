@@ -32,7 +32,7 @@ app:
   replicaCount: 1
   image:
     repository: prabasaaridesigns
-    tag: "prabas-v0.1.0"
+    tag: "prabas-v0.1.1"
     pullPolicy: Always
   # Sized like the sibling storefronts on the shared 'storefront' capacity
   # (256Mi request vs ~90Mi observed working set; 768Mi limit for SSR bursts).
