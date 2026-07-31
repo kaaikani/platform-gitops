@@ -1,0 +1,28 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ReadVendureClientSecret",
+            "Effect": "Allow",
+            "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret"
+            ],
+            "Resource": "arn:aws:secretsmanager:ap-south-1:149536454380:secret:vendure-client/prod/all-*"
+        },
+        {
+            "Sid": "S3AssetsReadWrite",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::avsecomhub-clients-s3-images",
+                "arn:aws:s3:::avsecomhub-clients-s3-images/vendure-client/*"
+            ]
+        }
+    ]
+}
