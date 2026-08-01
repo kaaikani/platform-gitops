@@ -128,6 +128,43 @@ In a REAL failover none of these apply: real secrets get promoted, Redis
 Cloud is checked for its own region status, image-updater runs (prod's is
 dead), S3 writes are legitimate.
 
+### Drill isolation VERIFICATION (a rule without a check is a hope)
+
+**Pre-flight — before any app pod starts. Deploy with worker replicas=0;
+scale up only after these pass** (the worker is what consumes queues and
+sends messages):
+
+```bash
+# 1. Synced k8s secrets contain DRILL values (dummy keys use a DUMMY- prefix
+#    so any leak is obvious in logs):
+kubectl get secret vendure-secrets -n vendure-production \
+  -o jsonpath='{.data.DB_HOST}' | base64 -d      # vendure-dr-db... expected
+kubectl get secret vendure-app-secrets -n vendure-production \
+  -o jsonpath='{.data.RAZORPAY_KEY_ID}' | base64 -d   # DUMMY-... expected
+# 2. Redis is in-cluster (anything *.redis.cloud => ABORT):
+kubectl exec deploy/vendure-server -n vendure-production -- env | grep REDIS_HOST
+# 3. No image-updater:
+kubectl get deploy -n argocd | grep image-updater     # expect: nothing
+```
+
+**During — watch PRODUCTION, not just DR:** prod Grafana worker
+job-processing rate unchanged (a drop = foreign consumer on the queue);
+ALB 5xx flat; MSG91 dashboard + SES send metrics flat in the drill window
+(the "did we message a real customer" ground truth).
+
+**Post-drill — after terraform destroy:**
+
+```bash
+cd terraform && terraform plan                    # "No changes" = prod untouched
+aws secretsmanager describe-secret --secret-id vendure/prod/database \
+  --query 'ReplicationStatus[0].Status'           # "InSync" = replica never promoted
+aws rds describe-db-instance-automated-backups --region ap-south-2 \
+  --query 'DBInstanceAutomatedBackups[0].Status'  # "replicating"
+git log --oneline --since="<drill start>"         # no stray image-updater commits
+aws s3api list-objects-v2 --bucket cdn.kaaikani.co.in \
+  --query 'Contents[?LastModified>=`<drill start>`].[Key]'  # no drill uploads
+```
+
 ## Drill teardown
 
 ```bash
