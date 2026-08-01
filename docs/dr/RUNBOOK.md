@@ -102,6 +102,32 @@ All 5 Cloudflare domains follow. **Manual extras:**
 
 Not scripted yet — outline: mysqldump DR db → restore into Mumbai (or DMS reverse-replication), flip `active_alb_dns_name` back, `terraform destroy` in live/aws-dr, re-enable backup replication. **Design properly before the second drill.**
 
+## DRILL MODE — mandatory deviations from the real-failover steps above
+
+The drill builds a copy of production **with production's data and keys**. The
+infra cannot touch prod (separate region/state), but a faithfully-booted DR
+Vendure can reach OUT to real systems. These four rules make the drill inert:
+
+1. **Secrets: use throwaway drill copies, never the real replicas.**
+   Create `vendure/dr-drill/*` secrets in ap-south-2 containing the drill
+   DB_HOST and **DUMMY** Razorpay / MSG91 / SMTP keys. Point the DR
+   SecretStore at those. The restored DB holds 27K+ real customers — with
+   real keys, the abandoned-cart sweep alone could SMS/email actual
+   customers from a test environment.
+   Never run `PromoteReplicaToPrimary` on a real replica in a drill (it
+   detaches live replication). Practice promotion on a dummy secret.
+2. **Redis: in-cluster helm redis, never Redis Cloud.** Prod and DR sharing
+   Redis means the DR worker CONSUMES the production job queue.
+3. **Exclude argocd-image-updater** from the DR app-of-apps — two ArgoCDs
+   pushing tag commits to one repo fight each other.
+4. **S3: expect drill uploads to land in prod buckets** (the app policies
+   point at the real CDN bucket). Keep test orders imageless, or accept and
+   delete the stray objects after.
+
+In a REAL failover none of these apply: real secrets get promoted, Redis
+Cloud is checked for its own region status, image-updater runs (prod's is
+dead), S3 writes are legitimate.
+
 ## Drill teardown
 
 ```bash
