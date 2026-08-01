@@ -1,0 +1,41 @@
+# DR DRILL overlay — layered ON TOP of environments/production/vendure-values.yaml:
+#   helm install vendure ./vendure-stack \
+#     -f environments/production/vendure-values.yaml -f environments/dr/drill-values.yaml
+#
+# Purpose: boot the production stack in the DR cluster with ZERO ability to
+# reach customers or production systems. See docs/dr/RUNBOOK.md "DRILL MODE".
+
+global:
+  # DR replica registry — same images, replicated by dr_ecr.tf
+  imageRegistry: "149536454380.dkr.ecr.ap-south-2.amazonaws.com/"
+
+externalSecrets:
+  enabled: true
+  aws:
+    region: ap-south-2 # replicas + drill secrets live here
+  # Drill secrets: DUMMY- external keys (MSG91/Razorpay/SMTP/S3), real internal
+  # generated values (COOKIE_SECRET/TOTP_SALT), in-cluster redis, DR db endpoint.
+  awsSecrets:
+    database: vendure/dr-drill/database
+    redis: vendure/dr-drill/redis
+    awsS3: vendure/dr-drill/aws-s3
+    smtps: vendure/dr-drill/smtps
+    integrations: vendure/dr-drill/integrations
+
+serviceAccount:
+  create: true
+  annotations:
+    # DR IRSA role (terraform output irsa_role_arns -> vendure_prod_app)
+    eks.amazonaws.com/role-arn: arn:aws:iam::149536454380:role/vendure-dr-vendure-prod-app
+
+# WORKER STAYS OFF until pre-flight isolation checks pass (runbook rule #4:
+# the worker is what consumes queues and sends messages). Scale up manually:
+#   kubectl scale deploy vendure-worker -n vendure-production --replicas=1
+worker:
+  replicaCount: 0
+
+# No ALB in drill v1 — no ACM cert exists in ap-south-2 and the ingress
+# annotations pin ap-south-1 cert ARNs (known gap, runbook). Test access is
+# kubectl port-forward; ALB provisioning is a goal for drill #2.
+ingress:
+  enabled: false
