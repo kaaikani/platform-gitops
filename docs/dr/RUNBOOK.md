@@ -102,6 +102,69 @@ All 5 Cloudflare domains follow. **Manual extras:**
 
 Not scripted yet — outline: mysqldump DR db → restore into Mumbai (or DMS reverse-replication), flip `active_alb_dns_name` back, `terraform destroy` in live/aws-dr, re-enable backup replication. **Design properly before the second drill.**
 
+## DRILL MODE — mandatory deviations from the real-failover steps above
+
+The drill builds a copy of production **with production's data and keys**. The
+infra cannot touch prod (separate region/state), but a faithfully-booted DR
+Vendure can reach OUT to real systems. These four rules make the drill inert:
+
+1. **Secrets: use throwaway drill copies, never the real replicas.**
+   Create `vendure/dr-drill/*` secrets in ap-south-2 containing the drill
+   DB_HOST and **DUMMY** Razorpay / MSG91 / SMTP keys. Point the DR
+   SecretStore at those. The restored DB holds 27K+ real customers — with
+   real keys, the abandoned-cart sweep alone could SMS/email actual
+   customers from a test environment.
+   Never run `PromoteReplicaToPrimary` on a real replica in a drill (it
+   detaches live replication). Practice promotion on a dummy secret.
+2. **Redis: in-cluster helm redis, never Redis Cloud.** Prod and DR sharing
+   Redis means the DR worker CONSUMES the production job queue.
+3. **Exclude argocd-image-updater** from the DR app-of-apps — two ArgoCDs
+   pushing tag commits to one repo fight each other.
+4. **S3: expect drill uploads to land in prod buckets** (the app policies
+   point at the real CDN bucket). Keep test orders imageless, or accept and
+   delete the stray objects after.
+
+In a REAL failover none of these apply: real secrets get promoted, Redis
+Cloud is checked for its own region status, image-updater runs (prod's is
+dead), S3 writes are legitimate.
+
+### Drill isolation VERIFICATION (a rule without a check is a hope)
+
+**Pre-flight — before any app pod starts. Deploy with worker replicas=0;
+scale up only after these pass** (the worker is what consumes queues and
+sends messages):
+
+```bash
+# 1. Synced k8s secrets contain DRILL values (dummy keys use a DUMMY- prefix
+#    so any leak is obvious in logs):
+kubectl get secret vendure-secrets -n vendure-production \
+  -o jsonpath='{.data.DB_HOST}' | base64 -d      # vendure-dr-db... expected
+kubectl get secret vendure-app-secrets -n vendure-production \
+  -o jsonpath='{.data.RAZORPAY_KEY_ID}' | base64 -d   # DUMMY-... expected
+# 2. Redis is in-cluster (anything *.redis.cloud => ABORT):
+kubectl exec deploy/vendure-server -n vendure-production -- env | grep REDIS_HOST
+# 3. No image-updater:
+kubectl get deploy -n argocd | grep image-updater     # expect: nothing
+```
+
+**During — watch PRODUCTION, not just DR:** prod Grafana worker
+job-processing rate unchanged (a drop = foreign consumer on the queue);
+ALB 5xx flat; MSG91 dashboard + SES send metrics flat in the drill window
+(the "did we message a real customer" ground truth).
+
+**Post-drill — after terraform destroy:**
+
+```bash
+cd terraform && terraform plan                    # "No changes" = prod untouched
+aws secretsmanager describe-secret --secret-id vendure/prod/database \
+  --query 'ReplicationStatus[0].Status'           # "InSync" = replica never promoted
+aws rds describe-db-instance-automated-backups --region ap-south-2 \
+  --query 'DBInstanceAutomatedBackups[0].Status'  # "replicating"
+git log --oneline --since="<drill start>"         # no stray image-updater commits
+aws s3api list-objects-v2 --bucket cdn.kaaikani.co.in \
+  --query 'Contents[?LastModified>=`<drill start>`].[Key]'  # no drill uploads
+```
+
 ## Drill teardown
 
 ```bash
