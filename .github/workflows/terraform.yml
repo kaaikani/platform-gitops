@@ -22,6 +22,9 @@ permissions:
 env:
   AWS_REGION: ap-south-1
   TF_ROLE_ARN: arn:aws:iam::149536454380:role/github-actions-terraform
+  # Cloudflare provider (dr_cloudflare.tf) reads this automatically.
+  # Token scope: DNS:Edit + Zone:Read on the 5 zones, expires 2027-08-03.
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
 # All terraform commands run inside the terraform/ subdirectory.
 defaults:

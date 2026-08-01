@@ -14,10 +14,13 @@ resource "aws_eks_cluster" "prod_eks" {
     endpoint_private_access = true
     public_access_cidrs     = ["0.0.0.0/0"]
   }
-  encryption_config { # ← ADD whole block (stops replacement #2)
+  encryption_config {
     resources = ["secrets"]
     provider {
-      key_arn = "arn:aws:kms:ap-south-1:149536454380:key/559f6913-83a0-4d22-8d55-58dd0d60fc1e"
+      # Same key as before, looked up instead of a hardcoded ARN. The key itself
+      # stays unmanaged (KMS keys are never recreated in place); the DR module
+      # creates its own key -- see terraform/live/aws-dr.
+      key_arn = data.aws_kms_key.eks_secrets.arn
     }
   }
   tags = {
@@ -38,3 +41,9 @@ resource "aws_eks_cluster" "prod_eks" {
   }
 }
 # EKS managed node groups moved to node_groups.tf (refactored into modules/node_group)
+# The EKS secrets-encryption key, previously a hardcoded ARN. Unmanaged on
+# purpose: this key can never be replaced on a live cluster (encryption_config
+# is immutable), so importing it buys nothing. DR creates its own key.
+data "aws_kms_key" "eks_secrets" {
+  key_id = "559f6913-83a0-4d22-8d55-58dd0d60fc1e"
+}

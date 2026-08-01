@@ -49,11 +49,19 @@ spec:
                 - kubecost
       validate:
         message: >-
-          All images must be from the approved ECR registry 149536454380.dkr.ecr.ap-south-1.amazonaws.com/
-        pattern:
-          spec:
-            containers:
-              - image: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/*"
+          All images must come from our ECR registry (ap-south-1 primary or
+          ap-south-2 DR replica).
+        # anyPattern (OR), not pattern: allows either region's registry. The DR
+        # replica registry (dr_ecr.tf keeps it in sync) must be admissible or
+        # this policy blocks EVERY pod in a DR cluster. Relaxation is safe --
+        # both registries are ours, same account, replicated content.
+        anyPattern:
+          - spec:
+              containers:
+                - image: "149536454380.dkr.ecr.ap-south-1.amazonaws.com/*"
+          - spec:
+              containers:
+                - image: "149536454380.dkr.ecr.ap-south-2.amazonaws.com/*"
 
 ---
 # =============================================================================
