@@ -1,0 +1,56 @@
+# Nightly logical dump of vendure-prod-db -> s3://kaaikani-escape-dumps
+# (GCP Storage Transfer pulls it daily -- docs/dr/GCP-ESCAPE.md).
+#
+# ⚠ NOT YET APPLIED. Review then: kubectl apply -f environments/production/db-dump-cronjob.yaml
+# Runs 02:15 IST (after the 01:30 RDS backup window). mysqldump of ~10 GB
+# on db.t3.medium takes minutes; --single-transaction = no locks on InnoDB.
+# Uses the vendure-production IRSA-free path: credentials from the existing
+# vendure-secrets k8s secret; S3 write via the vendure-production-role
+# (needs s3:PutObject on kaaikani-escape-dumps added to its inline policy --
+# one statement in terraform/policies/vendure-s3-access.json).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-escape-dump
+  namespace: vendure-production
+spec:
+  schedule: "45 20 * * *" # 20:45 UTC = 02:15 IST
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          serviceAccountName: vendure-production-vendure-stack
+          restartPolicy: Never
+          nodeSelector:
+            node-group: vendure
+          containers:
+            - name: dump
+              image: public.ecr.aws/docker/library/mysql:8.0
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  F="vendure-prod-$(date +%F).sql.gz"
+                  mysqldump -h "$DB_HOST" -u "$DB_USERNAME" -p"$DB_PASSWORD" \
+                    --single-transaction --quick --routines --triggers \
+                    "$DB_NAME" | gzip > "/tmp/$F"
+                  # aws cli not in mysql image; use the sidecar-free curl SigV4?
+                  # Simplest reliable: install awscli v2 (one-time per run, ~10s)
+                  curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+                  cd /tmp && unzip -q awscli.zip && ./aws/install >/dev/null
+                  aws s3 cp "/tmp/$F" "s3://kaaikani-escape-dumps/$F" --region ap-south-1
+                  echo "dump uploaded: $F ($(du -h /tmp/$F | cut -f1))"
+              envFrom:
+                - secretRef:
+                    name: vendure-secrets
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  memory: 1Gi
