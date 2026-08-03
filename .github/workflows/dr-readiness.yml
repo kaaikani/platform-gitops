@@ -1,0 +1,102 @@
+name: DR Readiness Check
+
+# Weekly verification that every DR sync channel is alive. The failure mode
+# this kills: replication silently breaks in month 3, nobody looks, and the
+# gap is discovered DURING a disaster (drill #1 finding #7 — the DR registry
+# was empty on drill day). Runs OUTSIDE AWS on purpose: the watchman must not
+# live in the building it guards.
+on:
+  schedule:
+    - cron: "30 22 * * 0" # Mondays 04:00 IST
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+env:
+  AWS_REGION: ap-south-1
+  TF_ROLE_ARN: arn:aws:iam::149536454380:role/github-actions-terraform
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check every DR channel
+        id: check
+        run: |
+          FAIL=""
+          note() { echo "$1"; }
+          bad()  { FAIL="${FAIL}- $1\n"; echo "FAIL: $1"; }
+
+          # 1. RDS backup replication streaming to ap-south-2
+          S=$(aws rds describe-db-instance-automated-backups --region ap-south-2 \
+               --query 'DBInstanceAutomatedBackups[0].Status' --output text 2>/dev/null)
+          [ "$S" = "replicating" ] && note "RDS replication: $S" || bad "RDS backup replication is '$S' (want: replicating)"
+
+          # 2. All prod secret replicas InSync
+          for s in vendure/prod/database vendure/prod/redis vendure/prod/aws-s3 \
+                   vendure/prod/smtps vendure/prod/integrations prod/storefronts \
+                   vendure-client/prod/all; do
+            ST=$(aws secretsmanager describe-secret --secret-id "$s" \
+                  --query 'ReplicationStatus[0].Status' --output text 2>/dev/null)
+            [ "$ST" = "InSync" ] || bad "secret replica $s is '$ST'"
+          done
+          note "secret replicas checked"
+
+          # 3. DR ECR repos non-empty (code images ready to run)
+          for r in vendure-prod kaaikanistore southmithai swadkerala prabasaaridesigns vendure-client; do
+            N=$(aws ecr describe-images --region ap-south-2 --repository-name "$r" \
+                 --query 'length(imageDetails)' --output text 2>/dev/null || echo 0)
+            [ "${N:-0}" -ge 1 ] || bad "DR ECR repo $r is EMPTY"
+          done
+          note "DR ECR repos checked"
+
+          # 4. EC2 vault has a recovery point newer than 40 days
+          NEWEST=$(aws backup list-recovery-points-by-backup-vault --region ap-south-2 \
+                    --backup-vault-name vendure-dr-ec2 \
+                    --query 'max_by(RecoveryPoints,&CreationDate).CreationDate' --output text 2>/dev/null)
+          if [ -z "$NEWEST" ] || [ "$NEWEST" = "None" ]; then
+            bad "EC2 DR vault has NO recovery points"
+          else
+            AGE=$(( ( $(date +%s) - $(date -d "$NEWEST" +%s) ) / 86400 ))
+            [ "$AGE" -le 40 ] && note "EC2 vault newest recovery point: ${AGE}d old" \
+              || bad "EC2 vault newest recovery point is ${AGE} days old (>40)"
+          fi
+
+          # 5. DR ACM certs all ISSUED
+          NOT_ISSUED=$(aws acm list-certificates --region ap-south-2 \
+                        --query "length(CertificateSummaryList[?Status!='ISSUED'])" --output text)
+          [ "$NOT_ISSUED" = "0" ] && note "DR certs all ISSUED" || bad "$NOT_ISSUED DR cert(s) not ISSUED"
+
+          # 6. SES second-region identities verified
+          UNVER=$(aws sesv2 list-email-identities --region ap-southeast-1 \
+                   --query "length(EmailIdentities[?VerifiedForSendingStatus==\`false\`])" --output text 2>/dev/null)
+          [ "${UNVER:-1}" = "0" ] && note "SES ap-southeast-1 identities verified" \
+            || bad "$UNVER SES identity(ies) in ap-southeast-1 not verified for sending"
+
+          {
+            echo "failures<<EOF"
+            printf "%b" "$FAIL"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          [ -z "$FAIL" ] && echo "ALL DR CHANNELS GREEN"
+
+      - name: Open issue on failure
+        if: steps.check.outputs.failures != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "🔴 DR readiness FAILED $(date -u +%F)" \
+            --body "Weekly DR readiness check found broken sync channels. If a real disaster hit today, recovery would be degraded or impossible. Fix before anything else:
+
+${{ steps.check.outputs.failures }}
+
+Runbook: docs/dr/RUNBOOK.md (Monthly DR readiness check section)."
