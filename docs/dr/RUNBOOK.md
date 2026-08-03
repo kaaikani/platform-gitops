@@ -1,7 +1,45 @@
 # DR Runbook — ap-south-1 regional failover → ap-south-2
 
 **Targets:** RTO 45–90 min · RPO 15–30 min
-**Last drill:** NEVER — this runbook is UNTESTED until the first drill. Treat every step as suspect until then.
+**Last drill:** #1 on 2026-08-01 — **CORE PATH ONLY** (infra + DB restore + vendure API/worker).
+Measured: first-run RTO 1h55m including 14 live-debugged findings; clean-run estimate 40–50 min.
+**NOT yet drilled:** ALB/HTTPS ingress, storefronts, vendure-client, DNS flip, EC2 restore,
+ArgoCD bootstrap, monitoring. Until drill #2 covers those, "we have DR" means the DATA and the
+CORE APP — a customer could not yet reach the site. Do not overclaim.
+
+## Drill #1 results (2026-08-01)
+
+Proven: VPC/EKS/nodegroup/addons/IRSA build in ap-south-2 · RDS restore from replicated
+backup (674 products, real order history) · secrets replicas + drill isolation (5/5 checks,
+MSG91/SES untouched) · vendure server ×2 + worker + in-cluster redis · /health 200 + live
+shop-api queries. Timeline: 14:30 start → 16:25 serving → 16:29 teardown start → 16:46 gone.
+
+Findings (all fixed in code/runbook same day):
+1. ACM regional — certs now PRE-ISSUED in ap-south-2 (dr_acm.tf)
+2. EKS Auto-Mode API requires compute+storage+elasticLoadBalancing together
+3. Interrupted apply orphans in-flight RDS restore → import + ignore_changes
+4. final_snapshot_identifier required when skip_final_snapshot=false
+5. **t3a family does not exist in ap-south-2** → DR uses t3
+6. kubectl context defaults to prod → every DR command uses --context dr
+7. **DR ECR was EMPTY** — replication only copies new pushes; all 6 repos backfilled;
+   verify non-empty in the monthly readiness check
+8. bootstrap_self_managed_addons=false + addons-after-nodegroup = CNI deadlock →
+   vpc-cni/kube-proxy install BEFORE the node group (aws_eks_addon.boot)
+9. Default gp2 StorageClass is legacy in-tree → PVCs hang; CSI SC needed (drill #2)
+10. ClusterSecretStore `aws-secrets-manager` is cluster-scoped, chart doesn't create it →
+    manifest now in this runbook (step 4a)
+11. PriorityClasses (`vendure-critical`) required before any pod schedules →
+    `kubectl apply -f cluster-config/priority-classes.yaml`
+12. **Chart bug:** worker `replicaCount|default 1` — 0 is impossible via values;
+    scale imperatively BEFORE unblocking pod creation
+13. Prod values nodeSelector `node-group: vendure` → label DR nodes:
+    `kubectl --context dr label nodes --all node-group=vendure`
+14. ACM validation tokens are per-account-per-domain — existing prod CNAMEs validated
+    the DR certs instantly; no new records needed (Cloudflare 81053 if you try)
+
+Monthly DR readiness check (5 min): DR ECR repos non-empty · secret replicas InSync ·
+RDS backup replication `replicating` · EC2 vault has a recovery point in ap-south-2 ·
+DR cert status ISSUED.
 
 ---
 

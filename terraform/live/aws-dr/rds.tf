@@ -75,6 +75,9 @@ resource "aws_db_instance" "dr" {
   vpc_security_group_ids = [aws_security_group.rds.id]
   publicly_accessible    = false
   multi_az               = false
+  # Inherited from the encrypted replicated backup. MUST be declared: leaving
+  # it unset plans true->null which is a FORCED REPLACEMENT of the restored DB.
+  storage_encrypted = true
 
   # Post-restore posture: backups ON immediately -- the DR db IS prod while
   # the failover lasts.
@@ -82,6 +85,18 @@ resource "aws_db_instance" "dr" {
   deletion_protection     = true
   copy_tags_to_snapshot   = true
   skip_final_snapshot     = false
+  # DRILL FINDING #4: provider validation demands an identifier whenever
+  # skip_final_snapshot=false (prod's imported instance dodges this via state).
+  final_snapshot_identifier = "vendure-dr-db-final"
 
   tags = { Project = var.project, Environment = "dr" }
+
+  # DRILL FINDING #3 (2026-08-01): an interrupted apply left the restore
+  # running in AWS while Terraform forgot it -> the instance had to be
+  # IMPORTED. An imported instance has no restore_to_point_in_time in state,
+  # and without this ignore the next plan proposes REPLACING the restored
+  # database. The restore block only matters at creation anyway.
+  lifecycle {
+    ignore_changes = [restore_to_point_in_time]
+  }
 }
