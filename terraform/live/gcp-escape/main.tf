@@ -4,9 +4,10 @@
 #
 # Prereq: user's one-time GCP setup (project + billing + ADC login), then:
 #   terraform init && terraform apply
-# State: LOCAL on purpose (terraform.tfstate in this directory, committed to
-# the PRIVATE repo). The whole point is surviving AWS-account death -- state
-# in the S3 backend would die with it. GitHub is the off-cloud store.
+# State: LOCAL and GITIGNORED (repo-wide *.tfstate rule -- it contains the
+# scoped AWS transfer key). Escape day does NOT depend on this state: every
+# resource here is name-stable (buckets, registry, transfer job), so a fresh
+# machine can re-import or simply use them directly via gcloud/console.
 
 terraform {
   required_version = ">= 1.11"
@@ -45,6 +46,19 @@ provider "google" {
   region  = var.region
 }
 
+# APIs enabled by terraform itself -- avoids needing `gcloud auth login`
+# (ADC from application-default login is all terraform needs).
+resource "google_project_service" "apis" {
+  for_each = toset([
+    "storage.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "storagetransfer.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
+  ])
+  service            = each.value
+  disable_on_destroy = false
+}
+
 # --- DB dumps land here (pulled daily from the S3 escape bucket) ---
 resource "google_storage_bucket" "db_dumps" {
   name     = "${var.project_id}-db-dumps"
@@ -66,8 +80,8 @@ resource "google_storage_bucket" "db_dumps" {
 
 # --- quarterly gpg secrets exports ---
 resource "google_storage_bucket" "secrets_export" {
-  name                        = "${var.project_id}-secrets-export"
-  location                    = var.region
+  name     = "${var.project_id}-secrets-export"
+  location = var.region
   versioning {
     enabled = true
   }
@@ -79,6 +93,19 @@ resource "google_artifact_registry_repository" "images" {
   repository_id = "kaaikani"
   format        = "DOCKER"
   location      = var.region
+}
+
+# The Storage Transfer service runs as a Google-managed service account that
+# needs write access on the sink bucket -- without this the job creates but
+# every run fails with PERMISSION_DENIED.
+data "google_storage_transfer_project_service_account" "default" {
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_storage_bucket_iam_member" "transfer_writer" {
+  bucket = google_storage_bucket.db_dumps.name
+  role   = "roles/storage.admin"
+  member = "serviceAccount:${data.google_storage_transfer_project_service_account.default.email}"
 }
 
 # --- daily pull of dumps from S3 (enabled once AWS bridge keys are set) ---
