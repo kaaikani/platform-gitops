@@ -1,0 +1,66 @@
+name: Terraform Drift Detection
+
+# Nightly at 21:00 UTC (02:30 AM IST). Catches console-side changes before an
+# unrelated PR merge silently reverts them — this exact failure almost
+# re-created a publicly-open test DB on 2026-07-30 (see aws-cost memory) and
+# console drift produced 4 of drill #1's findings.
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+env:
+  AWS_REGION: ap-south-1
+  TF_ROLE_ARN: arn:aws:iam::149536454380:role/github-actions-terraform
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - run: terraform init -input=false
+
+      - name: Detect drift
+        id: plan
+        # -detailed-exitcode: 0 = clean, 1 = error, 2 = DRIFT
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -no-color -input=false -out=drift.tfplan > plan.txt 2>&1
+          echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+          tail -60 plan.txt > plan-tail.txt
+
+      - name: Open issue on drift
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Terraform drift detected $(date -u +%F)" \
+            --label drift \
+            --body "Nightly drift check found differences between code and AWS. Someone changed something in the console, or an apply was interrupted. Review before the next merge auto-applies a revert.
+
+\`\`\`
+$(cat plan-tail.txt)
+\`\`\`"
+
+      - name: Fail loudly on plan error
+        if: steps.plan.outputs.exitcode == '1'
+        run: cat plan.txt && exit 1
