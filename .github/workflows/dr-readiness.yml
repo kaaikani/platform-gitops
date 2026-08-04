@@ -11,7 +11,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  id-token: write
+  id-token: write # used for BOTH clouds: AWS OIDC role + GCP Workload Identity
   contents: read
   issues: write
 
@@ -27,6 +27,13 @@ jobs:
         with:
           role-to-assume: ${{ env.TF_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/905443273799/locations/global/workloadIdentityPools/github/providers/github-oidc
+          service_account: github-mirror@kaaikani-escape.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
 
       - name: Check every DR channel
         id: check
@@ -81,12 +88,29 @@ jobs:
           [ "${UNVER:-1}" = "0" ] && note "SES ap-southeast-1 identities verified" \
             || bad "$UNVER SES identity(ies) in ap-southeast-1 not verified for sending"
 
+          # 7. GCP escape hatch: latest S3->GCS transfer run succeeded
+          TS=$(gcloud transfer operations list --job-names=transferJobs/8134068081390362036 \
+                --limit=1 --format="value(metadata.status)" 2>/dev/null || echo NONE)
+          case "$TS" in
+            SUCCESS|IN_PROGRESS) note "GCP transfer job: $TS" ;;
+            *) bad "GCP S3->GCS transfer job status: '$TS'" ;;
+          esac
+
+          # 8. GCP Artifact Registry stocked
+          GN=$(gcloud artifacts docker images list asia-south1-docker.pkg.dev/kaaikani-escape/kaaikani \
+                --format="value(package)" 2>/dev/null | wc -l)
+          [ "${GN:-0}" -ge 1 ] && note "Artifact Registry: $GN image(s)" || bad "GCP Artifact Registry is EMPTY"
+
+          # 9. GCP secret copies exist
+          SN=$(gcloud secrets list --project kaaikani-escape --format="value(name)" 2>/dev/null | wc -l)
+          [ "${SN:-0}" -ge 7 ] && note "GCP secret copies: $SN" || bad "GCP Secret Manager has only ${SN:-0}/7 secrets"
+
           {
             echo "failures<<EOF"
             printf "%b" "$FAIL"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-          [ -z "$FAIL" ] && echo "ALL DR CHANNELS GREEN"
+          [ -z "$FAIL" ] && echo "ALL DR CHANNELS GREEN (AWS + GCP)"
 
       - name: Open issue on failure
         if: steps.check.outputs.failures != ''

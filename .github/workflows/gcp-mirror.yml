@@ -1,0 +1,72 @@
+name: GCP Escape Mirror
+
+# Weekly: keep the GCP escape hatch STOCKED without anyone remembering.
+#  1. Mirror the newest image of each repo ECR -> Artifact Registry
+#  2. Re-sync the 7 prod secrets AWS Secrets Manager -> GCP Secret Manager
+# Auth is KEYLESS both sides: AWS via OIDC role, GCP via Workload Identity
+# Federation (this account's org policy forbids SA key files -- good).
+# Cost: ~8 min/week of the free 2000 GitHub minutes.
+on:
+  schedule:
+    - cron: "0 23 * * 0" # Mondays 04:30 IST, after the readiness check
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  TF_ROLE_ARN: arn:aws:iam::149536454380:role/github-actions-terraform
+  GAR: asia-south1-docker.pkg.dev/kaaikani-escape/kaaikani
+  WIF_PROVIDER: projects/905443273799/locations/global/workloadIdentityPools/github/providers/github-oidc
+  GCP_SA: github-mirror@kaaikani-escape.iam.gserviceaccount.com
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Docker logins (both registries)
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | \
+            docker login --username AWS --password-stdin 149536454380.dkr.ecr.ap-south-1.amazonaws.com
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Mirror newest image per repo
+        run: |
+          for r in vendure-prod kaaikanistore southmithai swadkerala prabasaaridesigns vendure-client; do
+            TAG=$(aws ecr describe-images --repository-name "$r" \
+                    --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' --output text)
+            SRC="149536454380.dkr.ecr.ap-south-1.amazonaws.com/$r:$TAG"
+            DST="$GAR/$r:$TAG"
+            if gcloud artifacts docker images describe "$DST" >/dev/null 2>&1; then
+              echo "$r:$TAG already mirrored"; continue
+            fi
+            docker pull -q "$SRC" && docker tag "$SRC" "$DST" && docker push -q "$DST"
+            echo "mirrored $r:$TAG"
+            docker rmi "$SRC" "$DST" >/dev/null 2>&1 || true
+          done
+
+      - name: Re-sync secrets AWS -> GCP Secret Manager
+        run: |
+          for s in vendure/prod/database vendure/prod/redis vendure/prod/aws-s3 \
+                   vendure/prod/smtps vendure/prod/integrations prod/storefronts \
+                   vendure-client/prod/all; do
+            GID=$(echo "$s" | tr '/-' '__')
+            aws secretsmanager get-secret-value --secret-id "$s" \
+              --query SecretString --output text | \
+              gcloud secrets versions add "$GID" --project kaaikani-escape --data-file=- >/dev/null
+            echo "synced $GID"
+          done
