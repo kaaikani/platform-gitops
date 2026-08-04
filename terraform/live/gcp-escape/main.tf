@@ -141,6 +141,58 @@ resource "google_storage_transfer_job" "s3_dumps" {
   }
 }
 
+
+# --- product images: the photos behind every storefront page. Mumbai->Hyderabad
+# S3 CRR is AWS->AWS only; account death would take all 25k photos with it.
+resource "google_storage_bucket" "assets" {
+  name     = "${var.project_id}-assets"
+  location = var.region
+  versioning {
+    enabled = true
+  }
+  uniform_bucket_level_access = true
+}
+
+resource "google_storage_bucket_iam_member" "transfer_writer_assets" {
+  bucket = google_storage_bucket.assets.name
+  role   = "roles/storage.admin"
+  member = "serviceAccount:${data.google_storage_transfer_project_service_account.default.email}"
+}
+
+resource "google_storage_transfer_job" "s3_assets" {
+  for_each = var.aws_transfer_access_key_id != "" ? toset(["cdn.kaaikani.co.in", "avsecomhub-clients-s3-images"]) : toset([])
+
+  description = "daily pull of product images from s3://${each.key}"
+
+  transfer_spec {
+    aws_s3_data_source {
+      bucket_name = each.key
+      aws_access_key {
+        access_key_id     = var.aws_transfer_access_key_id
+        secret_access_key = var.aws_transfer_secret_key
+      }
+    }
+    gcs_data_sink {
+      bucket_name = google_storage_bucket.assets.name
+      path        = "${each.key}/"
+    }
+  }
+
+  schedule {
+    schedule_start_date {
+      year  = 2026
+      month = 8
+      day   = 4
+    }
+    start_time_of_day {
+      hours   = 23 # 04:30 IST
+      minutes = 0
+      seconds = 0
+      nanos   = 0
+    }
+  }
+}
+
 # =============================================================================
 # ESCAPE-DAY SKELETON -- count=0 until an actual escape/drill flips it on.
 # GKE Autopilot: no node management, fastest possible bring-up, pay-per-pod.

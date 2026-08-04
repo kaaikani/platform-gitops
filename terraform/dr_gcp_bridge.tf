@@ -39,9 +39,15 @@ resource "aws_iam_user_policy" "gcp_transfer_read_dumps" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"]
-      Resource = [aws_s3_bucket.escape_dumps.arn, "${aws_s3_bucket.escape_dumps.arn}/*"]
+      Effect = "Allow"
+      Action = ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"]
+      # dumps + the product-image buckets: without the images in GCP, an
+      # account-death escape resurrects storefronts with empty photo frames
+      Resource = [
+        aws_s3_bucket.escape_dumps.arn, "${aws_s3_bucket.escape_dumps.arn}/*",
+        "arn:aws:s3:::cdn.kaaikani.co.in", "arn:aws:s3:::cdn.kaaikani.co.in/*",
+        "arn:aws:s3:::avsecomhub-clients-s3-images", "arn:aws:s3:::avsecomhub-clients-s3-images/*",
+      ]
     }]
   })
 }
