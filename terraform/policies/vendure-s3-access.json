@@ -14,6 +14,15 @@
                 "arn:aws:s3:::cdn.kaaikani.co.in",
                 "arn:aws:s3:::cdn.kaaikani.co.in/*"
             ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::kaaikani-escape-dumps/*"
+            ]
         }
     ]
 }
