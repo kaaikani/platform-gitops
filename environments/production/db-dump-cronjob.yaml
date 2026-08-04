@@ -48,24 +48,27 @@ spec:
                 - -c
                 - |
                   set -euo pipefail
-                  F="vendure-prod-$(date +%F).sql.gz"
-                  # --set-gtid-purged=OFF: without it mysqldump 8 attempts
-                  # FLUSH TABLES WITH READ LOCK, which RDS denies (found by
-                  # the first real test run). --no-tablespaces: same class,
-                  # avoids needing PROCESS privilege. MYSQL_PWD avoids the
-                  # password-on-cli warning in logs.
                   export MYSQL_PWD="$DB_PASSWORD"
                   # vendure-secrets carries the app's STATIC S3 keys (user
                   # S3-admin) which the CLI prefers over IRSA -- and that user
                   # can't write the escape bucket. Drop them so the pod's own
                   # role (which can) is used for the upload.
                   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-                  mysqldump -h "$DB_HOST" -u "$DB_USERNAME" \
-                    --single-transaction --quick --routines --triggers \
-                    --set-gtid-purged=OFF --no-tablespaces \
-                    "$DB_NAME" | gzip > "/work/$F"
-                  aws s3 cp "/work/$F" "s3://kaaikani-escape-dumps/$F" --region ap-south-1
-                  echo "dump uploaded: $F ($(du -h /work/$F | cut -f1))"
+                  # BOTH databases on this RDS instance. DRILL FINDING #10
+                  # (2026-08-04): dumping only wow_vendure left the client
+                  # storefront (prabhasaari, db client_vendure) with NO copy
+                  # outside AWS -- its escape-day page failed with
+                  # CHANNEL_NOT_FOUND. Any new tenant DB must be added here.
+                  for DB in wow_vendure client_vendure; do
+                    F="${DB}-$(date +%F).sql.gz"
+                    mysqldump -h "$DB_HOST" -u "$DB_USERNAME" \
+                      --single-transaction --quick --routines --triggers \
+                      --set-gtid-purged=OFF --no-tablespaces \
+                      "$DB" | gzip > "/work/$F"
+                    aws s3 cp "/work/$F" "s3://kaaikani-escape-dumps/$F" --region ap-south-1
+                    echo "uploaded $F ($(du -h /work/$F | cut -f1))"
+                    rm -f "/work/$F"
+                  done
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
