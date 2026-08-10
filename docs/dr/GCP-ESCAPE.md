@@ -28,20 +28,35 @@ Proven end to end with real production data, AWS in no part of the request path:
 
 ### ESCAPE-DAY PROCEDURE (corrected by the drill — follow exactly)
 
-1. `terraform apply -var escape_active=true -var escape_db_suffix=dN`
+1. `terraform apply -var escape_active=true -var escape_db_suffix=dN \
+      -var aws_transfer_access_key_id=... -var aws_transfer_secret_key=...`
    (**bump N every time** — Cloud SQL tombstones deleted instance names ~1 week)
+   ⚠ **The two AWS-key vars are NOT optional.** All three S3→GCS transfer jobs
+   are gated on `aws_transfer_access_key_id != ""`, so an apply without them
+   reads as "3 to destroy" and silently tears down the replication that feeds
+   this whole plan (dumps + both image buckets). Already-replicated data in
+   GCS survives, but nothing new arrives until the jobs are recreated. Read
+   the plan before confirming: **on escape day the only destroys should be
+   ones you intended.**
    Expect 403s if APIs were recently enabled: **retry, propagation takes minutes**.
 2. Wait for the import to FINISH before touching users/networks — the instance
    **locks during import** and every config call returns 409.
-3. Import: `POST /v1/projects/kaaikani-escape/instances/<inst>/import` with
-   `{"fileType":"SQL","uri":"gs://kaaikani-escape-db-dumps/<newest>.sql.gz",
-   "database":"wow_vendure"}`. First grant the Cloud SQL service account
+3. Import **once per database — there are TWO** (`wow_vendure` and
+   `client_vendure`; the client storefronts live in the second, DRILL FINDING
+   #10). `POST /v1/projects/kaaikani-escape/instances/<inst>/import` with
+   `{"fileType":"SQL","uri":"gs://kaaikani-escape-db-dumps/<DB>-<newest>.sql.gz",
+   "database":"<DB>"}`. First grant the Cloud SQL service account
    `roles/storage.objectViewer` on the dumps bucket.
+   Both databases are created empty by terraform — the dumps are
+   single-database mysqldumps and carry no `CREATE DATABASE`, so importing
+   into a missing database fails with "No database selected".
 4. **Create the app user with POST, never PUT.** A user created/updated via PUT
    gets only `GRANT USAGE` (powerless); POST-created users get full privileges.
-5. **The import restores DATA but NOT GRANTS.** After import:
-   `GRANT ALL PRIVILEGES ON \`wow_vendure\`.* TO 'admin'@'%'; FLUSH PRIVILEGES;`
-   Symptom if skipped: `ER_DBACCESS_DENIED_ERROR 1044` and the app crash-loops.
+5. **The import restores DATA but NOT GRANTS.** After import, grant on **both**:
+   `GRANT ALL PRIVILEGES ON \`wow_vendure\`.* TO 'admin'@'%';`
+   `GRANT ALL PRIVILEGES ON \`client_vendure\`.* TO 'admin'@'%'; FLUSH PRIVILEGES;`
+   Symptom if skipped: `ER_DBACCESS_DENIED_ERROR 1044` and the app crash-loops
+   (or, if only the first is granted, the client storefronts crash alone).
 6. Grant the **GKE node service account** (`<projnum>-compute@developer...`)
    `roles/artifactregistry.reader` or **no pod can pull any image**.
 7. Cloud SQL connectivity: Autopilot **rotates node egress IPs**, so a /32

@@ -356,6 +356,11 @@ spec:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: MSG91_AUTH_KEY
                   optional: true
+            # MSG91 sender ("hello") number — plain config, not a secret.
+            {{- if .Values.vendure.env.MSG91_HELLO_NUMBER }}
+            - name: MSG91_HELLO_NUMBER
+              value: {{ .Values.vendure.env.MSG91_HELLO_NUMBER | quote }}
+            {{- end }}
 
             # Abandoned-cart sweep interval (minutes) — plain config, not a secret.
             {{- if .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN }}

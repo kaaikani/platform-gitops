@@ -76,8 +76,6 @@ resource "aws_instance" "test_ec2" {
 #   ami           = "ami-001c3e230ff9dd79c"
 #   instance_type = "t3.micro"
 #   subnet_id     = aws_subnet.test_public_1a.id
-#   key_name      = "test_key"
-#   ebs_optimized = true
 #   monitoring    = false
 #   vpc_security_group_ids = [
 #     aws_security_group.test_sg.id

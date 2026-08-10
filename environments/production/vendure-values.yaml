@@ -106,6 +106,9 @@ vendure:
     # Abandoned-cart sweep interval (minutes). Non-secret config toggle.
     # Testing uses 1; production runs the sweep every 30 min.
     ABANDONED_CART_SWEEP_EVERY_MIN: "30"
+    # MSG91 sender ("hello") number used for SMS/OTP. Not a secret — the auth
+    # key stays in AWS Secrets Manager (vendure/prod/integrations).
+    MSG91_HELLO_NUMBER: "919840089302"
     # Apple OAuth Bundle IDs (not sensitive — public iOS bundle identifiers)
     APPLE_CLIENT_ID_SOUTHMITHAI: "com.southmithai.southmithai"
     APPLE_CLIENT_ID_SWADKERALA: "com.Swadkerala.Swadkerala"

@@ -54,6 +54,8 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "storagetransfer.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "container.googleapis.com", # GKE
+    "sqladmin.googleapis.com",  # Cloud SQL
   ])
   service            = each.value
   disable_on_destroy = false
@@ -209,4 +211,52 @@ resource "google_container_cluster" "escape" {
   enable_autopilot = true
 
   deletion_protection = false
+}
+
+# Cloud SQL instance names are QUARANTINED ~1 week after deletion -- hence the
+# suffix variable: every drill bumps it (d1, d2, ...) instead of fighting the
+# tombstone (drill-learning from AWS applied proactively).
+variable "escape_db_suffix" {
+  type    = string
+  default = "d1"
+}
+
+resource "google_sql_database_instance" "escape" {
+  count            = var.escape_active ? 1 : 0
+  name             = "kaaikani-escape-db-${var.escape_db_suffix}"
+  database_version = "MYSQL_8_0"
+  region           = var.region
+
+  deletion_protection = false
+
+  settings {
+    tier = "db-custom-2-8192" # 2 vCPU / 8 GB -- import of a ~5 GB raw dump in minutes not hours
+    ip_configuration {
+      ipv4_enabled = true
+      # authorized networks added AT DRILL TIME scoped to the GKE egress IP --
+      # never 0.0.0.0/0, this instance holds real production data
+    }
+  }
+}
+
+# One database per DB dumped by environments/production/db-dump-cronjob.yaml.
+# The dumps are single-database mysqldumps (no --databases), so they carry NO
+# "CREATE DATABASE" -- the target must already exist or the import fails with
+# "No database selected". DRILL FINDING #10 fixed the dump side; this is the
+# restore side of the same gap. Any new tenant DB must be added to BOTH lists.
+resource "google_sql_database" "escape" {
+  for_each = var.escape_active ? toset(["wow_vendure", "client_vendure"]) : toset([])
+  name     = each.key
+  instance = google_sql_database_instance.escape[0].name
+}
+
+output "escape_cluster_endpoint" {
+  value = var.escape_active ? google_container_cluster.escape[0].endpoint : null
+}
+output "escape_cluster_ca" {
+  value     = var.escape_active ? google_container_cluster.escape[0].master_auth[0].cluster_ca_certificate : null
+  sensitive = true
+}
+output "escape_db_ip" {
+  value = var.escape_active ? google_sql_database_instance.escape[0].public_ip_address : null
 }
