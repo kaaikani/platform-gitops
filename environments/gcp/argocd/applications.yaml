@@ -1,0 +1,186 @@
+# =============================================================================
+# ArgoCD Applications — GCP ESCAPE CLUSTER ONLY
+# =============================================================================
+# Turns escape day from six hand-typed helm commands into one `kubectl apply`.
+# It also removes a class of mistake that only happens under pressure: a
+# forgotten -f, a wrong namespace, a values file typed from memory.
+#
+# ⚠ PRODUCTION SAFETY — why this cannot leak into production:
+# The production app-of-apps (argocd/app-of-apps.yaml) watches ONLY the path
+# `argocd/applications`. This file lives under environments/gcp/argocd/, which
+# that Application does not read, so production ArgoCD never sees it. Do not
+# move this file into argocd/applications/ — it would immediately try to
+# deploy GKE-shaped config onto the production EKS cluster.
+#
+# Apply on the escape cluster ONLY, after bootstrap steps 0-4:
+#   kubectl apply -f environments/gcp/argocd/applications.yaml
+#
+# DRILL MODE: these deploy the ESCAPE configuration — real Redis Cloud
+# credentials, real integration keys, real hostnames. For a DRILL, do NOT use
+# this file. Use the helm commands in GCP-ESCAPE.md with
+# `-f environments/gcp/drill-values.yaml` appended, so the isolation rules
+# apply. A drill run through these Applications would share production's job
+# queue. See docs/dr/RUNBOOK.md "DRILL MODE".
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vendure-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: vendure-stack
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-production.yaml
+        - ../environments/production/vendure-values.yaml
+        - ../environments/gcp/vendure-values.yaml
+      releaseName: vendure-production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vendure-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vendure-client-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: vendure-stack
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../environments/production/vendure-client-values.yaml
+        - ../environments/gcp/vendure-client-values.yaml
+      releaseName: vendure-client-production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vendure-client-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: storefront-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: storefront
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../environments/production/storefront-values.yaml
+        - ../environments/gcp/storefronts-values.yaml
+      releaseName: storefront-production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: storefront-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: southmithai-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: storefront
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../environments/production/southmithai-values.yaml
+        - ../environments/gcp/storefronts-values.yaml
+      releaseName: southmithai-production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: southmithai-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: swadkerala-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: storefront
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../environments/production/swadkerala-values.yaml
+        - ../environments/gcp/storefronts-values.yaml
+      releaseName: swadkerala-production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: swadkerala-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prabasaari-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kaaikani/platform-gitops.git
+    targetRevision: main
+    path: prabasaari
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../environments/production/prabasaari-values.yaml
+        - ../environments/gcp/prabasaari-values.yaml
+      releaseName: prabasaari-production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prabasaari-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

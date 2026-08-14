@@ -83,37 +83,50 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Heredoc rather than an inline multi-line --body: the list items
+          # below start at column 0, which ended the `run: |` block scalar and
+          # left this file invalid YAML. The detector has never fired.
+          cat > /tmp/deploy-body.md <<BODY
+          The site is not responding, but AWS infrastructure is healthy:
+
+          - EKS cluster: \`${{ steps.infra.outputs.eks }}\`
+          - RDS: \`${{ steps.infra.outputs.rds }}\`
+          - Load balancer: \`${{ steps.infra.outputs.alb }}\`
+          - App probe: ${{ steps.app.outputs.detail }}
+
+          **This is NOT a disaster-recovery situation. Do NOT fail over.**
+          Most likely a bad deploy or a crash-looping pod.
+
+          Check: \`kubectl get pods -n vendure-production\`, recent deploy commits,
+          then roll back with \`kubectl rollout undo\`.
+          BODY
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "🟡 App down — AWS is FINE, this is a deploy/app problem ($(date -u +%F\ %H:%M) UTC)" \
-            --body "The site is not responding, but AWS infrastructure is healthy:
-
-- EKS cluster: \`${{ steps.infra.outputs.eks }}\`
-- RDS: \`${{ steps.infra.outputs.rds }}\`
-- Load balancer: \`${{ steps.infra.outputs.alb }}\`
-- App probe: ${{ steps.app.outputs.detail }}
-
-**This is NOT a disaster-recovery situation. Do NOT fail over.**
-Most likely a bad deploy or a crash-looping pod.
-
-Check: \`kubectl get pods -n vendure-production\`, recent deploy commits,
-then roll back with \`kubectl rollout undo\`."
+            --body-file /tmp/deploy-body.md
 
       - name: 🔴 App down AND AWS unreachable — possible regional event
         if: steps.app.outputs.down == 'true' && steps.infra.outputs.verdict == 'REGIONAL'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cat > /tmp/regional-body.md <<BODY
+          The site is down AND AWS ap-south-1 is not answering normally:
+
+          - EKS cluster: \`${{ steps.infra.outputs.eks }}\`
+          - RDS: \`${{ steps.infra.outputs.rds }}\`
+          - Load balancer: \`${{ steps.infra.outputs.alb }}\`
+          - App probe: ${{ steps.app.outputs.detail }}
+
+          **This may be a regional event. A HUMAN must decide whether to fail over.**
+
+          1. Check https://health.aws.amazon.com/health/status
+          2. If AWS confirms a multi-hour ap-south-1 impact -> open docs/dr/RUNBOOK.md step 0
+          3. Failover is IRREVERSIBLE. Do not start it on a 10-minute blip.
+
+          If AWS itself is reachable but the ACCOUNT is not (billing lock, root
+          compromise, org-level IAM loss), ap-south-2 is gone too and the
+          answer is the GCP escape hatch: docs/dr/GCP-ESCAPE.md.
+          BODY
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "🔴 POSSIBLE REGIONAL OUTAGE — DR decision needed ($(date -u +%F\ %H:%M) UTC)" \
-            --body "The site is down AND AWS ap-south-1 is not answering normally:
-
-- EKS cluster: \`${{ steps.infra.outputs.eks }}\`
-- RDS: \`${{ steps.infra.outputs.rds }}\`
-- Load balancer: \`${{ steps.infra.outputs.alb }}\`
-- App probe: ${{ steps.app.outputs.detail }}
-
-**This may be a regional event. A HUMAN must decide whether to fail over.**
-
-1. Check https://health.aws.amazon.com/health/status
-2. If AWS confirms a multi-hour ap-south-1 impact -> open docs/dr/RUNBOOK.md step 0
-3. Failover is IRREVERSIBLE. Do not start it on a 10-minute blip."
+            --body-file /tmp/regional-body.md

@@ -1,14 +1,26 @@
 name: GCP Escape Mirror
 
-# Weekly: keep the GCP escape hatch STOCKED without anyone remembering.
-#  1. Mirror the newest image of each repo ECR -> Artifact Registry
+# Daily: keep the GCP escape hatch STOCKED without anyone remembering.
+#  1. Mirror ECR -> Artifact Registry: the newest tag AND the tag production is
+#     actually running, per repo
 #  2. Re-sync the 7 prod secrets AWS Secrets Manager -> GCP Secret Manager
 # Auth is KEYLESS both sides: AWS via OIDC role, GCP via Workload Identity
 # Federation (this account's org policy forbids SA key files -- good).
-# Cost: ~8 min/week of the free 2000 GitHub minutes.
+#
+# WEEKLY -> DAILY (2026-08-13): a weekly cadence meant images and secrets could
+# be 7 days stale at the moment of an escape, against a <=24h database RPO. A
+# rotated credential or a deploy on day 2 of the week left GCP holding a copy
+# that no longer matched the data it would be restored next to.
+#
+# NEWEST-ONLY -> NEWEST + PINNED: mirroring only the newest ECR tag meant the
+# escape cluster could not run the version production was running. If a bad
+# deploy is what triggered the escape, "newest" is the last thing you want, and
+# there was nothing else to fall back to.
+#
+# Cost: ~8 min/day of the free 2000 GitHub minutes.
 on:
   schedule:
-    - cron: "0 23 * * 0" # Mondays 04:30 IST, after the readiness check
+    - cron: "0 23 * * *" # 04:30 IST daily, after the readiness check
   workflow_dispatch: {}
 
 permissions:
@@ -26,6 +38,9 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
+      # Needed to read the tags production has pinned in its values files.
+      - uses: actions/checkout@v4
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.TF_ROLE_ARN }}
@@ -44,29 +59,69 @@ jobs:
             docker login --username AWS --password-stdin 149536454380.dkr.ecr.ap-south-1.amazonaws.com
           gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
 
-      - name: Mirror newest image per repo
+      - name: Mirror newest + production-pinned image per repo
         run: |
-          for r in vendure-prod kaaikanistore southmithai swadkerala prabasaaridesigns vendure-client; do
-            TAG=$(aws ecr describe-images --repository-name "$r" \
-                    --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' --output text)
-            SRC="149536454380.dkr.ecr.ap-south-1.amazonaws.com/$r:$TAG"
-            DST="$GAR/$r:$TAG"
-            if gcloud artifacts docker images describe "$DST" >/dev/null 2>&1; then
-              echo "$r:$TAG already mirrored"; continue
-            fi
-            docker pull -q "$SRC" && docker tag "$SRC" "$DST" && docker push -q "$DST"
-            echo "mirrored $r:$TAG"
-            docker rmi "$SRC" "$DST" >/dev/null 2>&1 || true
+          set -uo pipefail
+          # repo:values-file. The pinned tag is what the escape cluster should
+          # run by default -- it is the version whose behaviour is known.
+          declare -A VALUES=(
+            [vendure-prod]=environments/production/vendure-values.yaml
+            [vendure-client]=environments/production/vendure-client-values.yaml
+            [kaaikanistore]=environments/production/storefront-values.yaml
+            [southmithai]=environments/production/southmithai-values.yaml
+            [swadkerala]=environments/production/swadkerala-values.yaml
+            [prabasaaridesigns]=environments/production/prabasaari-values.yaml
+          )
+
+          FAILED=""
+          for r in "${!VALUES[@]}"; do
+            NEWEST=$(aws ecr describe-images --repository-name "$r" \
+                      --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' --output text 2>/dev/null)
+            # First `tag: "..."` under the image block of that chart's values.
+            PINNED=$(grep -oP '^\s*tag:\s*"\K[^"]+' "${VALUES[$r]}" | head -1)
+
+            for TAG in "$NEWEST" "$PINNED"; do
+              if [ -z "$TAG" ] || [ "$TAG" = "None" ]; then continue; fi
+              SRC="149536454380.dkr.ecr.ap-south-1.amazonaws.com/$r:$TAG"
+              DST="$GAR/$r:$TAG"
+              if gcloud artifacts docker images describe "$DST" >/dev/null 2>&1; then
+                echo "$r:$TAG already mirrored"; continue
+              fi
+              if docker pull -q "$SRC" && docker tag "$SRC" "$DST" && docker push -q "$DST"; then
+                echo "mirrored $r:$TAG"
+              else
+                # Do not let one missing tag silently skip the rest -- a repo
+                # that fails every night is exactly the rot this job exists to
+                # prevent, and it must be visible.
+                echo "FAILED to mirror $r:$TAG"; FAILED="$FAILED $r:$TAG"
+              fi
+              docker rmi "$SRC" "$DST" >/dev/null 2>&1 || true
+            done
           done
+
+          [ -z "$FAILED" ] || { echo "::error::could not mirror:$FAILED"; exit 1; }
 
       - name: Re-sync secrets AWS -> GCP Secret Manager
         run: |
+          set -uo pipefail
+          FAILED=""
           for s in vendure/prod/database vendure/prod/redis vendure/prod/aws-s3 \
                    vendure/prod/smtps vendure/prod/integrations prod/storefronts \
                    vendure-client/prod/all; do
             GID=$(echo "$s" | tr '/-' '__')
-            aws secretsmanager get-secret-value --secret-id "$s" \
-              --query SecretString --output text | \
-              gcloud secrets versions add "$GID" --project kaaikani-escape --data-file=- >/dev/null
-            echo "synced $GID"
+            # The secret CONTAINER was created by hand during the first escape
+            # setup and lives in no terraform state. If the project is ever
+            # rebuilt, `versions add` against a container that does not exist
+            # fails -- and the mirror would have been failing quietly ever
+            # since. Create-if-missing removes that dependency on memory.
+            gcloud secrets describe "$GID" --project kaaikani-escape >/dev/null 2>&1 || \
+              gcloud secrets create "$GID" --project kaaikani-escape --replication-policy=automatic
+            if aws secretsmanager get-secret-value --secret-id "$s" \
+                 --query SecretString --output text | \
+                 gcloud secrets versions add "$GID" --project kaaikani-escape --data-file=- >/dev/null; then
+              echo "synced $GID"
+            else
+              echo "FAILED to sync $GID"; FAILED="$FAILED $GID"
+            fi
           done
+          [ -z "$FAILED" ] || { echo "::error::could not sync:$FAILED"; exit 1; }

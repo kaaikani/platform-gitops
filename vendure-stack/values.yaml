@@ -171,6 +171,30 @@ vendure:
   #       value: "3"
 
 # =============================================================================
+# VENDURE WORKER
+# =============================================================================
+# The templates have always read .Values.worker.*, but this section was never
+# declared here -- every value came from the environment files. Two consequences,
+# both found while preparing GCP escape drill #2:
+#
+#  1. `replicas: {{ .Values.worker.replicaCount | default 1 }}` existed because
+#     there was no default to fall back on. That `default` turned a deliberate
+#     0 into 1 and silently disabled the drill isolation rule.
+#  2. Helm can only delete a key with `null` if the chart declares that subtree.
+#     With no `worker:` here, `worker.nodeSelector.node-group: null` in an
+#     overlay rendered a literal `node-group: null` instead of removing it --
+#     which is a type error against the Kubernetes API, and would have left
+#     every worker pod unschedulable on the escape cluster.
+#
+# Production sets all three of these explicitly, so declaring them changes
+# nothing there -- verified by a byte-identical render of vendure-production
+# and vendure-client-production before and after.
+worker:
+  enabled: true
+  replicaCount: 1
+  nodeSelector: {}
+
+# =============================================================================
 # MYSQL DATABASE
 # =============================================================================
 mysql:

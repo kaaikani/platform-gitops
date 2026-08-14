@@ -14,7 +14,17 @@ metadata:
     {{- include "vendure-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
-  replicas: {{ .Values.worker.replicaCount | default 1 }}
+  {{- /*
+    NOT `| default 1`. Go templates treat 0 as empty, so `default 1` silently
+    turned `worker.replicaCount: 0` into 1 -- which is how environments/dr/
+    drill-values.yaml could carry "WORKER STAYS OFF until pre-flight isolation
+    checks pass" while every drill ran with a live worker. The worker drains
+    queues and sends messages to real customers, so that comment was the only
+    thing standing between a drill and a production side effect.
+    A Helm comment, not a YAML one, so the rendered manifest is unchanged.
+    The default now lives in values.yaml where a 0 can survive.
+  */}}
+  replicas: {{ .Values.worker.replicaCount }}
   selector:
     matchLabels:
       {{- include "vendure-stack.vendure.selectorLabels" . | nindent 6 }}

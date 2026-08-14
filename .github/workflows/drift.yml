@@ -52,14 +52,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Heredoc, not an inline multi-line --body: the continuation lines
+          # used to start at column 0, which terminates the `run: |` block
+          # scalar and left this file invalid YAML -- the nightly drift check
+          # has not been running. Keep every line indented to the block level.
+          {
+            cat <<'BODY'
+          Nightly drift check found differences between code and AWS. Someone
+          changed something in the console, or an apply was interrupted. Review
+          before the next merge auto-applies a revert.
+
+          ```
+          BODY
+            cat plan-tail.txt
+            echo '```'
+          } > /tmp/drift-body.md
           gh issue create \
             --title "Terraform drift detected $(date -u +%F)" \
             --label drift \
-            --body "Nightly drift check found differences between code and AWS. Someone changed something in the console, or an apply was interrupted. Review before the next merge auto-applies a revert.
-
-\`\`\`
-$(cat plan-tail.txt)
-\`\`\`"
+            --body-file /tmp/drift-body.md
 
       - name: Fail loudly on plan error
         if: steps.plan.outputs.exitcode == '1'

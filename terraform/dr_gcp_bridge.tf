@@ -43,10 +43,30 @@ resource "aws_iam_user_policy" "gcp_transfer_read_dumps" {
       Action = ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"]
       # dumps + the product-image buckets: without the images in GCP, an
       # account-death escape resurrects storefronts with empty photo frames
+      # 2026-08-13: extended from 3 buckets to ALL production buckets. The
+      # earlier list covered only what the app's s3.bucket values pointed at,
+      # which silently left four production buckets with no copy outside AWS:
+      # the image backup set (5,682 objects), the prabhasaaridesigns bucket,
+      # the order-report exports and wow-vendure. Regional DR replicates them
+      # via S3 CRR to ap-south-2; account-level DR did not replicate them at
+      # all, so an account loss took them permanently.
+      # Still read-only, still one bucket list, still no write anywhere.
       Resource = [
         aws_s3_bucket.escape_dumps.arn, "${aws_s3_bucket.escape_dumps.arn}/*",
         "arn:aws:s3:::cdn.kaaikani.co.in", "arn:aws:s3:::cdn.kaaikani.co.in/*",
         "arn:aws:s3:::avsecomhub-clients-s3-images", "arn:aws:s3:::avsecomhub-clients-s3-images/*",
+        "arn:aws:s3:::vendure-images-backup", "arn:aws:s3:::vendure-images-backup/*",
+        "arn:aws:s3:::prabhasaaridesigns", "arn:aws:s3:::prabhasaaridesigns/*",
+        "arn:aws:s3:::daily-order-sales-reports", "arn:aws:s3:::daily-order-sales-reports/*",
+        "arn:aws:s3:::wow-vendure", "arn:aws:s3:::wow-vendure/*",
+        # Terraform state. ap-south-2 replicates it to break a circular
+        # dependency (state lives in the region you need it to rebuild). GCP
+        # does not have that problem -- the escape hatch keeps its own state --
+        # but the file is the only record of what the AWS platform WAS, and the
+        # .tf code on GitHub does not carry resource ids or imported settings.
+        # ⚠ This state contains PLAINTEXT SECRETS. Its GCS copy is private with
+        # uniform bucket-level access and must stay that way.
+        "arn:aws:s3:::kaaikani-tfstate-149536454380", "arn:aws:s3:::kaaikani-tfstate-149536454380/*",
       ]
     }]
   })

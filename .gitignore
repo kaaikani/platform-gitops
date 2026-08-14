@@ -6,6 +6,11 @@
 .env.*
 *.pem
 *.key
+# Certificates too -- an origin cert is not secret, but it has no business
+# in the repo and its private key must never be one paste away from a commit.
+*.crt
+*.csr
+*.pem
 
 # Terraform — never commit state (plaintext secrets), plans, or provider binaries
 **/.terraform/*
@@ -15,5 +20,10 @@
 # `terraform plan -out=tfplan` writes a file with NO extension, so *.tfplan
 # misses it. The plan file holds every resource attribute -- never commit it.
 tfplan
+# The escape hatch takes the AWS transfer credentials as input vars. Nothing
+# writes a tfvars file today, but the moment someone does rather than retyping
+# a secret, it is committable. Cheaper to exclude it before that happens.
+*.tfvars
+*.tfvars.json
 tfplan.*
 crash.log

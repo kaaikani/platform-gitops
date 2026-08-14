@@ -1,0 +1,73 @@
+# =============================================================================
+# ingress-nginx — the escape cluster's edge
+# =============================================================================
+#   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+#   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+#     -n ingress-nginx --create-namespace \
+#     -f environments/gcp/bootstrap/ingress-nginx-values.yaml
+#
+# Why nginx and not GKE's built-in GCE ingress:
+#
+#  1. ONE load balancer for all six hostnames, the way ALB's group.name works
+#     in production. GCE ingress creates one LB per Ingress object — six LBs,
+#     six IPs, six Cloudflare records to change while the site is down.
+#  2. Google-managed certificates only begin provisioning AFTER dns already
+#     resolves to the load balancer, and then take 15-60 minutes. That is
+#     15-60 minutes of TLS errors in the middle of an outage. The Cloudflare
+#     Origin CA certificate below is issued in advance and trusted the instant
+#     traffic flips.
+#  3. The chart annotations are portable — the same Ingress objects would work
+#     on any nginx, including back on AWS.
+#
+# default-ssl-certificate is what makes TLS work without touching any app
+# chart: every Ingress that specifies no `tls:` block of its own gets served
+# with this certificate. The vendure chart supports `tls:`, the storefront and
+# prabasaari charts do not — this covers all of them identically, and needed no
+# chart change anywhere.
+# =============================================================================
+controller:
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      cloud.google.com/l4-rbs: "enabled"
+
+  extraArgs:
+    default-ssl-certificate: "ingress-nginx/cf-origin-tls"
+
+  config:
+    # Cloudflare sits in front, so the client IP arrives in a header. Without
+    # this every request appears to come from a Cloudflare edge address and
+    # rate limiting, fraud checks and access logs are all wrong.
+    use-forwarded-headers: "true"
+    compute-full-forwarded-for: "true"
+    proxy-body-size: "50m"
+    # Matches the ALB idle timeout production settled on.
+    proxy-read-timeout: "60"
+    proxy-send-timeout: "60"
+
+  # Two replicas across zones: an escape cluster with a single-replica edge has
+  # a single point of failure at the exact moment that matters.
+  replicaCount: 2
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx
+          app.kubernetes.io/component: controller
+
+  # Autopilot bills per requested pod resource, so request honestly.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+  admissionWebhooks:
+    enabled: true
+
+  metrics:
+    enabled: false
