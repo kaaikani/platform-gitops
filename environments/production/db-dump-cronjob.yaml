@@ -14,6 +14,16 @@ metadata:
   name: db-escape-dump
   namespace: vendure-production
 spec:
+  # SUSPENDED 2026-08-18. The GCP project this dump feeds (kaaikani-escape,
+  # 905443273799) is in DELETE_REQUESTED, so the nightly 915 MB pull out of
+  # s3://kaaikani-escape-dumps was paying internet egress (~$3/mo, ~27 GB/mo)
+  # into a destination that no longer exists. The transfer IAM key
+  # (gcp-storage-transfer / AKIASFUIRG3WF2F2P3T6) is Inactive for the same
+  # reason. To resume: undelete the GCP project, reactivate that key, then set
+  # suspend: false. NOTE the dump is a full mysqldump every night and gzips to
+  # a fresh non-deduplicable ~864 MB blob -- if this is re-enabled, prefer a
+  # weekly full rather than nightly, or write straight to GCS from the pod.
+  suspend: true
   schedule: "45 20 * * *" # 20:45 UTC = 02:15 IST, after the 01:30 backup window
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
