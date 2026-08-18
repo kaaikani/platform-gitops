@@ -46,6 +46,14 @@ ingress:
     alb.ingress.kubernetes.io/tags: null
     alb.ingress.kubernetes.io/load-balancer-attributes: null
     alb.ingress.kubernetes.io/target-group-attributes: null
+    # DRILL #2 FINDING: without this, http:// served the site in clear text with
+    # no redirect. ingress-nginx only auto-redirects when the Ingress carries its
+    # own `tls:` block; ours does not -- the certificate comes from the
+    # controller's default-ssl-certificate, and the storefront charts have no
+    # tls: support at all. Production's ALB did this with ssl-redirect: "443",
+    # which was nulled for GCP and never replaced. force-ssl-redirect works
+    # regardless of whether the Ingress declares TLS.
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 
 # See environments/gcp/vendure-values.yaml for why.
 networkPolicies:

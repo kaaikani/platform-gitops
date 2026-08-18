@@ -27,3 +27,4 @@ tfplan
 *.tfvars.json
 tfplan.*
 crash.log
+.claude

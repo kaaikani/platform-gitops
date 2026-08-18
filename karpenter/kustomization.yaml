@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - ec2nodeclass.yaml
   - nodepool-application.yaml
+  - nodepool-application-spot.yaml
   - nodepool-storefront.yaml
   - nodepool-vendure-clients.yaml
   - nodepool-monitoring.yaml
