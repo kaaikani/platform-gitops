@@ -60,10 +60,31 @@ spec:
       # Node expiry - Replace nodes every 30 days for security patches
       expireAfter: 720h
 
-  # Resource Limits for this NodePool
+  # ONE c5a.large. Combined with the 1-node cap on `application-spot`, the
+  # application tier can never exceed 2 nodes total.
+  #
+  # NOTE: memory is the binding limit, not cpu. c5a.large reports ~3.75Gi, so
+  # 4Gi fits exactly one node. The old `cpu: 6 = 3 nodes` comment was wrong —
+  # memory capped it at 2 long before cpu ever bound.
+  #
+  # Safe for deploys: the vendure Deployment runs maxSurge=0/maxUnavailable=1,
+  # so a rollout never creates a 3rd pod and never asks for a 3rd node.
+  #
+  # ACCEPTED TRADE-OFF (decided 2026-08-18): if spot capacity is unavailable,
+  # this pool cannot grow to cover BOTH replicas — the second stays Pending
+  # until spot returns, and Vendure serves on 1 replica.
+  #
+  # This is not theoretical. `aws ec2 get-spot-placement-scores` for c5a.large
+  # returned 3/10 in ALL three ap-south-1 AZs on 2026-08-18 — low availability.
+  # A t3a.medium spot node in the storefront pool was reclaimed the same day.
+  # Expect the degraded window to happen.
+  #
+  # If running on 1 replica ever becomes unacceptable, raise this to 8Gi. That
+  # restores the second on-demand node as a fallback, at the cost of permitting
+  # 3 nodes in the tier during a spot outage.
   limits:
-    cpu: 6          # Max 3 c5a.large nodes — 3rd node allows recovery when 2 are saturated by crashing pods
-    memory: 8Gi     # Max 8GB RAM total
+    cpu: 2
+    memory: 4Gi
 
   # Disruption Settings
   disruption:
@@ -72,5 +93,7 @@ spec:
     # Wait 5 minutes before consolidating — prevents create/delete loop
     consolidateAfter: 5m
 
-  # Priority weight (higher = preferred)
-  weight: 100
+  # Priority weight (higher = preferred).
+  # Lowered 100 -> 95 so `application-spot` (100, the Karpenter maximum) is
+  # filled first and this pool only takes the overflow replica.
+  weight: 95

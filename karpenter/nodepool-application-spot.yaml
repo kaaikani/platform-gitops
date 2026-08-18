@@ -1,0 +1,85 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: application-spot
+spec:
+  # SPOT half of the vendure application tier.
+  #
+  # Vendure runs 2 replicas. This pool is capped at exactly ONE node, so the
+  # first replica lands here on spot and the second falls through to the
+  # on-demand `application` pool. Result: 1 spot + 1 on-demand, so a spot
+  # reclaim can never take the whole service down.
+  #
+  # Cost: c5a.large on-demand $34.31/mo, spot ~$14/mo. Saves ~$22/mo while one
+  # replica stays on guaranteed capacity.
+  template:
+    metadata:
+      labels:
+        # MUST match the on-demand pool -- the vendure Deployment selects
+        # nodes with `nodeSelector: {node-group: vendure}`. Without this label
+        # no vendure pod can ever schedule here and the pool sits unused.
+        node-group: vendure
+        workload: vendure
+        cost-tier: budget
+        node-type: spot
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        # The only difference from the `application` pool.
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot"]
+
+        # Same instance shape as the on-demand pool, so a replica behaves
+        # identically whichever pool it lands on.
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["c5a"]
+
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["large"]
+
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["2"]
+
+        # Same AZ as RDS (vendure-prod-db) -- avoids cross-AZ query latency and
+        # cross-AZ transfer cost, matching the on-demand pool.
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["ap-south-1a"]
+
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+
+      expireAfter: 720h
+
+  # ONE c5a.large only. This cap is what forces the second replica onto the
+  # on-demand pool. c5a.large reports ~3.75Gi capacity, so 4Gi fits exactly one
+  # node and blocks a second. Do not raise this -- at 8Gi both replicas would
+  # land on spot and a single reclaim event could take out the whole API.
+  #
+  # `application` is capped at 1 node too, so the tier is hard-limited to
+  # 2 nodes total.
+  limits:
+    cpu: 2
+    memory: 4Gi
+
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+
+  # Higher than `application` (95) so Karpenter fills this pool FIRST and the
+  # on-demand pool only absorbs the overflow. 100 is the max Karpenter allows,
+  # which is why the on-demand pool was moved down to 95 rather than this one up.
+  weight: 100
