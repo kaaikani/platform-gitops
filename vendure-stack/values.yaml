@@ -85,6 +85,9 @@ vendure:
     NODE_ENV: production
     APP_ENV: production
     COOKIE_SECRET: "change-me-in-production"
+    # Web Push VAPID public key — safe to commit, it is served to browsers.
+    # Set per environment; empty here so local installs stay push-disabled.
+    VAPID_PUBLIC_KEY: ""
     SUPERADMIN_USERNAME: "superadmin"
     SUPERADMIN_PASSWORD: "superadmin123"
 
@@ -411,6 +414,9 @@ secrets:
   vendure:
     cookieSecret: "your-super-secret-cookie-key-change-in-production"
     superadminPassword: "superadmin123"
+    # Web Push VAPID private key — local dev only. Production reads it from
+    # AWS Secrets Manager (vendure/prod/integrations).
+    vapidPrivateKey: ""
 
 # External Secrets Operator Configuration
 # See: docs/AWS-SECRETS-MANAGER-SETUP.md for setup instructions

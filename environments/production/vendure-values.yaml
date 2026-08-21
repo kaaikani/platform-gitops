@@ -114,6 +114,10 @@ vendure:
     APPLE_CLIENT_ID_SWADKERALA: "com.Swadkerala.Swadkerala"
     APPLE_CLIENT_ID_KAAIKANIDIRECT: "com.kaaikanidirect.kaaikanidirect"
     APPLE_CLIENT_ID_DEFAULT: "com.kaaikani.kaaikani"
+    # Web Push (VAPID) public key. Public by design — the browser receives it
+    # when subscribing. The matching private key lives in AWS Secrets Manager
+    # (vendure/prod/integrations) as VAPID_PRIVATE_KEY.
+    VAPID_PUBLIC_KEY: "BMY8LJFxuDouahHMEfOv20LSMOOMyEjxwTPOWhWbA7AyJwQLH0rOSFA1gpfvZtp0DOI8aDEekGYnWbHJli1hA4Y"
     # OpenTelemetry Tracing Configuration
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
     OTEL_SERVICE_NAME: "vendure"

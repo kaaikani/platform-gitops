@@ -386,6 +386,20 @@ spec:
               value: {{ .Values.vendure.env.APPLE_CLIENT_ID_DEFAULT | quote }}
             {{- end }}
 
+            # Web Push (VAPID) — the public key is shipped to browsers by design,
+            # so it is plain config. The private key stays in AWS Secrets Manager
+            # (vendure/prod/integrations) and is synced in by External Secrets.
+            {{- if .Values.vendure.env.VAPID_PUBLIC_KEY }}
+            - name: VAPID_PUBLIC_KEY
+              value: {{ .Values.vendure.env.VAPID_PUBLIC_KEY | quote }}
+            {{- end }}
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: VAPID_PRIVATE_KEY
+                  optional: true
+
           resources:
             {{- toYaml .Values.vendure.resources | nindent 12 }}
 
