@@ -341,6 +341,16 @@ spec:
             - name: ABANDONED_CART_SWEEP_EVERY_MIN
               value: {{ .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN | quote }}
             {{- end }}
+            # Report export target bucket — report generation runs as a background
+            # job, so the worker needs it too. Plain config; access is via IRSA.
+            {{- if .Values.vendure.env.REPORT_S3_BUCKET }}
+            - name: REPORT_S3_BUCKET
+              value: {{ .Values.vendure.env.REPORT_S3_BUCKET | quote }}
+            {{- end }}
+            {{- if .Values.vendure.env.REPORT_S3_REGION }}
+            - name: REPORT_S3_REGION
+              value: {{ .Values.vendure.env.REPORT_S3_REGION | quote }}
+            {{- end }}
             # Web Push (VAPID) — push sends run as background jobs, so the worker
             # needs both halves. Public key is plain config; the private key is
             # synced from AWS Secrets Manager (vendure/prod/integrations).

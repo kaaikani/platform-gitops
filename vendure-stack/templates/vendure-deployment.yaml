@@ -362,6 +362,17 @@ spec:
               value: {{ .Values.vendure.env.MSG91_HELLO_NUMBER | quote }}
             {{- end }}
 
+            # Report export target bucket — plain config, not a secret. Access is
+            # via the pod's IRSA role.
+            {{- if .Values.vendure.env.REPORT_S3_BUCKET }}
+            - name: REPORT_S3_BUCKET
+              value: {{ .Values.vendure.env.REPORT_S3_BUCKET | quote }}
+            {{- end }}
+            {{- if .Values.vendure.env.REPORT_S3_REGION }}
+            - name: REPORT_S3_REGION
+              value: {{ .Values.vendure.env.REPORT_S3_REGION | quote }}
+            {{- end }}
+
             # Abandoned-cart sweep interval (minutes) — plain config, not a secret.
             {{- if .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN }}
             - name: ABANDONED_CART_SWEEP_EVERY_MIN

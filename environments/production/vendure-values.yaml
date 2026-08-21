@@ -109,6 +109,10 @@ vendure:
     # MSG91 sender ("hello") number used for SMS/OTP. Not a secret — the auth
     # key stays in AWS Secrets Manager (vendure/prod/integrations).
     MSG91_HELLO_NUMBER: "919840089302"
+    # Server-side report exports are written to this S3 bucket. Plain config —
+    # the bucket is reached with the pod's IRSA role, not access keys.
+    REPORT_S3_BUCKET: "kaaikani-reports"
+    REPORT_S3_REGION: "ap-south-1"
     # Apple OAuth Bundle IDs (not sensitive — public iOS bundle identifiers)
     APPLE_CLIENT_ID_SOUTHMITHAI: "com.southmithai.southmithai"
     APPLE_CLIENT_ID_SWADKERALA: "com.Swadkerala.Swadkerala"
