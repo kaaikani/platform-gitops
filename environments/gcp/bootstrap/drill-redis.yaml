@@ -1,0 +1,64 @@
+# =============================================================================
+# THROWAWAY REDIS — drills only
+# =============================================================================
+# Exists for one reason: to keep a drill off Redis Cloud.
+#
+# Redis Cloud is external to AWS, so on a real escape day the production Redis
+# is still alive and pointing at it is correct. During a DRILL that same
+# pointer means the drill cluster and production share a job queue — the drill
+# worker would consume production's jobs and they would never run in
+# production. This is the single most production-dangerous part of a GCP drill.
+#
+#   kubectl apply -f environments/gcp/bootstrap/drill-redis.yaml
+#
+# Not for real escapes. Not for production. Delete with the drill.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: drill-redis
+  namespace: vendure-production
+  labels:
+    app: drill-redis
+    drill: "true"
+spec:
+  selector:
+    app: drill-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drill-redis
+  namespace: vendure-production
+  labels:
+    app: drill-redis
+    drill: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drill-redis
+  template:
+    metadata:
+      labels:
+        app: drill-redis
+        drill: "true"
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # The app authenticates, so the throwaway must require a password.
+          # This value is not a secret: the instance is unreachable from
+          # outside the namespace and is destroyed with the drill.
+          args: ["--requirepass", "drill-only-not-a-secret", "--save", ""]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi

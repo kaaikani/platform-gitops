@@ -1,0 +1,189 @@
+# =============================================================================
+# GCP ESCAPE OVERLAY — vendure-production on GKE Autopilot
+# =============================================================================
+# Layered ON TOP of the production values, never instead of them:
+#
+#   helm upgrade --install vendure-production ./vendure-stack \
+#     -n vendure-production --create-namespace \
+#     -f vendure-stack/values.yaml \
+#     -f vendure-stack/values-production.yaml \
+#     -f environments/production/vendure-values.yaml \
+#     -f environments/gcp/vendure-values.yaml
+#
+# Layering this way is deliberate: every production tuning decision (resources,
+# probe timings, HPA thresholds, the ALB unhealthy-threshold lesson from
+# 2026-06-17) is inherited. This file changes ONLY what is AWS-specific.
+#
+# NOTHING HERE IS READ BY ARGOCD. The vendure-production Application points at
+# environments/production/vendure-values.yaml and this path is not in its
+# valueFiles list, so this file cannot affect the running production cluster.
+#
+# Status: renders clean; NOT yet drilled end to end. Escape drill #2 proves it.
+# =============================================================================
+
+global:
+  # Artifact Registry, stocked daily by .github/workflows/gcp-mirror.yml
+  imageRegistry: "asia-south1-docker.pkg.dev/kaaikani-escape/kaaikani/"
+
+# -----------------------------------------------------------------------------
+# SECRETS — same ExternalSecret machinery, GCP provider underneath.
+# The ClusterSecretStore named here is created by
+# environments/gcp/bootstrap/cluster-secret-store.yaml.
+# -----------------------------------------------------------------------------
+externalSecrets:
+  enabled: true
+  createSecretStore: false
+  clusterSecretStore: gcp-secrets
+  # 1m in production is for fast credential rotation. Secret Manager access is
+  # billed per 10k operations; during an escape nothing is rotating, so 1h.
+  refreshInterval: 1h
+  awsSecrets:
+    # Cloud SQL coordinates. NOT the mirrored vendure_prod_database — that one
+    # holds the RDS endpoint, which is precisely what has stopped existing.
+    # Populated during escape (GCP-ESCAPE.md step 5).
+    database: "vendure_gcp_database"
+    # Redis is Redis Cloud, not ElastiCache — it is outside AWS and survives an
+    # account loss untouched. The mirrored copy works as-is.
+    redis: "vendure_prod_redis"
+    # GCS HMAC credentials (terraform: google_storage_hmac_key.assets), so the
+    # unmodified app image can READ and WRITE assets over the S3 XML API.
+    awsS3: "vendure_gcp_assets"
+    # ⚠ OPEN GAP: these are SES credentials and SES dies with the account.
+    # Present so the container starts (every SMTP env var is a hard secretKeyRef);
+    # outbound mail will fail until a non-AWS SMTP provider is chosen.
+    smtps: "vendure_prod_smtps"
+    integrations: "vendure_prod_integrations"
+
+# IRSA is an AWS concept. Left in place the annotation is inert, but it invites
+# the wrong conclusion during an incident, so it is removed explicitly.
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: null
+
+# -----------------------------------------------------------------------------
+# ASSETS — GCS through its S3-compatible endpoint.
+# Bucket layout matches S3 key-for-key (one GCS bucket per source bucket, no
+# path prefix), so an asset recorded in the database as `assets/x__1.jpg`
+# resolves without touching a single row.
+# -----------------------------------------------------------------------------
+s3:
+  enabled: true
+  bucket: "kaaikani-escape-assets"
+  endpoint: "https://storage.googleapis.com"
+  useIRSA: false
+  existingSecret: "vendure-secrets"
+
+# -----------------------------------------------------------------------------
+# INGRESS — ingress-nginx, one static IP, TLS from the pre-issued Cloudflare
+# Origin CA certificate held cluster-wide by the controller
+# (bootstrap/ingress-nginx-values.yaml). No per-app cert wiring, and no waiting
+# on certificate provisioning while the site is down.
+#
+# Helm DEEP-MERGES maps, so each inherited ALB annotation must be nulled by
+# name. `kubernetes.io/ingress.class: alb` is the one that actually matters:
+# left set, ingress-nginx ignores the Ingress and nothing serves.
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: null
+    alb.ingress.kubernetes.io/group.name: null
+    alb.ingress.kubernetes.io/scheme: null
+    alb.ingress.kubernetes.io/target-type: null
+    alb.ingress.kubernetes.io/listen-ports: null
+    alb.ingress.kubernetes.io/ssl-redirect: null
+    alb.ingress.kubernetes.io/certificate-arn: null
+    alb.ingress.kubernetes.io/healthcheck-path: null
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: null
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: null
+    alb.ingress.kubernetes.io/healthy-threshold-count: null
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: null
+    alb.ingress.kubernetes.io/tags: null
+    alb.ingress.kubernetes.io/load-balancer-attributes: null
+    alb.ingress.kubernetes.io/target-group-attributes: null
+    # Product image uploads through the admin UI; ALB had no equivalent limit.
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # DRILL #2 FINDING: without this, http:// served the site in clear text with
+    # no redirect. ingress-nginx only auto-redirects when the Ingress carries its
+    # own `tls:` block; ours does not -- the certificate comes from the
+    # controller's default-ssl-certificate, and the storefront charts have no
+    # tls: support at all. Production's ALB did this with ssl-redirect: "443",
+    # which was nulled for GCP and never replaced. force-ssl-redirect works
+    # regardless of whether the Ingress declares TLS.
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+  # The chart's separate admin Ingress hardcodes ALB annotations and targets
+  # port 3002. /admin is added as a path below instead — the same conclusion
+  # vendure-client already reached in production.
+  adminUi:
+    enabled: false
+
+  hosts:
+    - host: kaaikani.co.in
+      paths:
+        - path: /dashboard
+          pathType: Prefix
+          service: vendure
+          port: 80
+        - path: /admin
+          pathType: Prefix
+          service: vendure
+          port: 80
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 80
+
+# ServiceMonitor/PrometheusRule need CRDs that do not exist on a bare Autopilot
+# cluster — helm install fails outright if these are left on. Escape-day
+# observability is Cloud Logging + Cloud Monitoring, which Autopilot gives for
+# free with no manifests at all.
+# -----------------------------------------------------------------------------
+# SCHEDULING — both of these are fatal on Autopilot if inherited.
+#
+# nodeSelector `node-group: vendure` is an EKS managed-node-group label.
+# Autopilot provisions nodes on demand and cannot satisfy an arbitrary custom
+# label, so the pods sit Pending forever with no error on the Deployment.
+#
+# priorityClassName `vendure-critical` is defined in cluster-config/, an
+# ArgoCD app that does not exist on the escape cluster. A pod naming a
+# PriorityClass that is not present is REJECTED at admission — the Deployment
+# is created, ReplicaSet reports the failure, and no pod is ever born.
+#
+# Drill #1 never hit either one because it ran a hand-written manifest rather
+# than the chart.
+# -----------------------------------------------------------------------------
+vendure:
+  nodeSelector:
+    node-group: null
+worker:
+  nodeSelector:
+    node-group: null
+priorityClassName: ""
+
+serviceMonitor:
+  enabled: false
+prometheusRule:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+# NETWORK POLICIES — OFF on GKE, deliberately, with a way back on.
+#
+# The chart's default-deny policy permits DNS only to pods in a namespace
+# labelled `name: kube-system`. EKS has that label; GKE labels kube-system
+# `kubernetes.io/metadata.name: kube-system` and nothing else. Applied as-is on
+# Autopilot the default-deny lands, all three DNS rules miss, and every pod
+# silently loses name resolution — which during an escape presents as the app
+# hanging on the database for no visible reason.
+#
+# Availability wins over microsegmentation for the duration of an outage, on a
+# cluster that is single-tenant, has a private-IP database and no public node
+# addresses. To restore the policies instead, label the namespace first:
+#   kubectl label ns kube-system name=kube-system
+# then set this back to true. Verify DNS from a pod BEFORE trusting it.
+# -----------------------------------------------------------------------------
+networkPolicies:
+  enabled: false

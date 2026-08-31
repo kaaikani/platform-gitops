@@ -1,0 +1,113 @@
+# =============================================================================
+# GCP ESCAPE OVERLAY — vendure-client-production on GKE Autopilot
+# =============================================================================
+#   helm upgrade --install vendure-client-production ./vendure-stack \
+#     -n vendure-client-production --create-namespace \
+#     -f vendure-stack/values.yaml \
+#     -f environments/production/vendure-client-values.yaml \
+#     -f environments/gcp/vendure-client-values.yaml
+#
+# This serves prabhasaaridesigns.com's APIs and reads client_vendure — the
+# database that had NO copy outside AWS until commit c4b7792 and that drill #1
+# never restored. Not exercised by any drill yet.
+#
+# Not referenced by any ArgoCD Application; inert with respect to production.
+# =============================================================================
+
+global:
+  imageRegistry: "asia-south1-docker.pkg.dev/kaaikani-escape/kaaikani/"
+
+# -----------------------------------------------------------------------------
+# SECRETS — all five point at ONE merged secret, on purpose.
+#
+# The chart extracts database → redis → awsS3 → smtps → integrations in that
+# fixed order, and each extract overwrites keys set by the previous one. Since
+# production keeps every value in a single all-in-one secret, overriding just
+# `database` with GCP coordinates would be silently reverted when `smtps`
+# re-extracted the all-secret. vendure_client_gcp_all is that secret with the
+# Cloud SQL host and the GCS HMAC keys merged over it (GCP-ESCAPE.md step 5).
+# -----------------------------------------------------------------------------
+externalSecrets:
+  enabled: true
+  createSecretStore: false
+  clusterSecretStore: gcp-secrets
+  refreshInterval: 1h
+  awsSecrets:
+    database: "vendure_client_gcp_all"
+    redis: "vendure_client_gcp_all"
+    awsS3: "vendure_client_gcp_all"
+    smtps: "vendure_client_gcp_all"
+    integrations: "vendure_client_gcp_all"
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: null
+
+# Client images mirror into their own bucket so keys match S3 exactly,
+# including the vendure-client/ prefix this tenant is scoped to.
+s3:
+  enabled: true
+  bucket: "kaaikani-escape-assets-client"
+  endpoint: "https://storage.googleapis.com"
+  useIRSA: false
+  existingSecret: "vendure-secrets"
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: null
+    alb.ingress.kubernetes.io/group.name: null
+    alb.ingress.kubernetes.io/group.order: null
+    alb.ingress.kubernetes.io/scheme: null
+    alb.ingress.kubernetes.io/target-type: null
+    alb.ingress.kubernetes.io/listen-ports: null
+    alb.ingress.kubernetes.io/ssl-redirect: null
+    alb.ingress.kubernetes.io/certificate-arn: null
+    alb.ingress.kubernetes.io/healthcheck-path: null
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: null
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: null
+    alb.ingress.kubernetes.io/healthy-threshold-count: null
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: null
+    alb.ingress.kubernetes.io/tags: null
+    alb.ingress.kubernetes.io/load-balancer-attributes: null
+    alb.ingress.kubernetes.io/target-group-attributes: null
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # DRILL #2 FINDING: without this, http:// served the site in clear text with
+    # no redirect. ingress-nginx only auto-redirects when the Ingress carries its
+    # own `tls:` block; ours does not -- the certificate comes from the
+    # controller's default-ssl-certificate, and the storefront charts have no
+    # tls: support at all. Production's ALB did this with ssl-redirect: "443",
+    # which was nulled for GCP and never replaced. force-ssl-redirect works
+    # regardless of whether the Ingress declares TLS.
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  adminUi:
+    enabled: false
+
+# ALB group.order let vendure-client's specific paths win over prabasaari's
+# catch-all '/'. ingress-nginx has no groups — it resolves by longest matching
+# path across all Ingresses, which produces the same outcome for these prefixes
+# without any ordering annotation. Verify /shop-api and /admin still route to
+# vendure (not to the prabasaari storefront) during drill #2.
+
+# EKS node-group labels Autopilot cannot satisfy — pods would sit Pending.
+# See environments/gcp/vendure-values.yaml for the full reasoning.
+vendure:
+  nodeSelector:
+    node-group: null
+worker:
+  nodeSelector:
+    node-group: null
+priorityClassName: ""
+
+serviceMonitor:
+  enabled: false
+prometheusRule:
+  enabled: false
+
+# See environments/gcp/vendure-values.yaml for the full reasoning: the chart's
+# DNS egress rules target a `name: kube-system` namespace label that GKE does
+# not set, so default-deny would kill name resolution cluster-wide.
+networkPolicies:
+  enabled: false

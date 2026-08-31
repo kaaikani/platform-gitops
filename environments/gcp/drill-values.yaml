@@ -1,0 +1,86 @@
+# =============================================================================
+# GCP ESCAPE DRILL overlay — MANDATORY for any drill, forbidden in a real escape
+# =============================================================================
+# Layered LAST, on top of the GCP overlay:
+#
+#   helm upgrade --install vendure-production ./vendure-stack -n vendure-production \
+#     -f vendure-stack/values.yaml -f vendure-stack/values-production.yaml \
+#     -f environments/production/vendure-values.yaml \
+#     -f environments/gcp/vendure-values.yaml \
+#     -f environments/gcp/drill-values.yaml     # <-- this file
+#
+# A drill restores REAL production data — 29,707 customers, 48,844 orders — and
+# boots a faithful copy of the application next to it. The infrastructure is
+# isolated (different cloud, different account). The APPLICATION is not: given
+# real credentials it will reach out to real payment, SMS and email providers,
+# and to real shared infrastructure.
+#
+# This is the GCP counterpart of environments/dr/drill-values.yaml and follows
+# the same four rules from docs/dr/RUNBOOK.md "DRILL MODE".
+#
+# ⚠ IN A REAL ESCAPE, DO NOT APPLY THIS FILE. Production is gone; real
+# credentials and the shared queue are then correct and necessary.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# RULE 1 — the worker stays OFF until pre-flight isolation checks pass.
+# The worker is what drains queues and sends messages. Scale up by hand only
+# after the checks in docs/dr/GCP-ESCAPE.md "Drill #2" have passed:
+#   kubectl scale deploy vendure-production-vendure-stack-worker \
+#     -n vendure-production --replicas=1
+# -----------------------------------------------------------------------------
+worker:
+  replicaCount: 0
+
+# -----------------------------------------------------------------------------
+# RULE 2 — Redis must NOT be Redis Cloud.
+#
+# This is the one that reaches production. Redis Cloud is a third-party service
+# that survives an AWS account loss, which is exactly why the escape overlay
+# points at the real mirrored credentials — correct on escape day. In a DRILL
+# it means the escape cluster and PRODUCTION share one Redis: the drill worker
+# would consume production's job queue, and jobs taken here would never run
+# there. Orders would silently lose their fulfilment steps in LIVE production.
+#
+# The drill secret below points REDIS_HOST at an in-namespace throwaway
+# (environments/gcp/bootstrap/drill-redis.yaml).
+#
+# RULE 3 — external keys must be DUMMY.
+# Razorpay, MSG91 and SMTP values in the drill secrets carry a literal DUMMY-
+# prefix so any leak is obvious in a log line rather than a customer's phone.
+# The restored database holds real customers; the abandoned-cart sweep alone
+# could message thousands of them from a test environment.
+#
+# Build these three secrets before the drill — GCP-ESCAPE.md "Drill #2" step 2.
+# -----------------------------------------------------------------------------
+externalSecrets:
+  refreshInterval: 1h
+  awsSecrets:
+    database: "vendure_gcp_drill_database"
+    redis: "vendure_gcp_drill_redis"
+    awsS3: "vendure_gcp_assets" # real: writes land in the DR mirror, not production
+    smtps: "vendure_gcp_drill_smtps"
+    integrations: "vendure_gcp_drill_integrations"
+
+# -----------------------------------------------------------------------------
+# RULE 4 — no customer hostname is served, and Cloudflare is not flipped for
+# any real domain. A single drill-only record proves the full browser path
+# (dns → nginx → TLS → pod) without a customer ever being routed here.
+# Delete the Cloudflare record when the drill ends.
+# -----------------------------------------------------------------------------
+ingress:
+  hosts:
+    - host: gcp-drill.kaaikani.co.in
+      paths:
+        - path: /dashboard
+          pathType: Prefix
+          service: vendure
+          port: 80
+        - path: /admin
+          pathType: Prefix
+          service: vendure
+          port: 80
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 80

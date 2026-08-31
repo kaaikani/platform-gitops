@@ -1,0 +1,98 @@
+# Nightly logical dump of vendure-prod-db -> s3://kaaikani-escape-dumps
+# (GCP Storage Transfer pulls it daily at 03:30 IST -- docs/dr/GCP-ESCAPE.md).
+#
+# A logical .sql dump (NOT an AWS snapshot) because SQL is the universal
+# format restorable OUTSIDE AWS -- snapshots are AWS-locked.
+# --single-transaction reads a consistent view with no table locks.
+#
+# Image: 149536454380...toolbox:mysqldump-v1 -- mysql:8.0 + awscli, USER 999.
+# Built non-root with limits because prod Kyverno/PodSecurity BLOCKED the
+# first version (public image, root, no cpu limit) -- guardrails working.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-escape-dump
+  namespace: vendure-production
+spec:
+  # SUSPENDED 2026-08-18. The GCP project this dump feeds (kaaikani-escape,
+  # 905443273799) is in DELETE_REQUESTED, so the nightly 915 MB pull out of
+  # s3://kaaikani-escape-dumps was paying internet egress (~$3/mo, ~27 GB/mo)
+  # into a destination that no longer exists. The transfer IAM key
+  # (gcp-storage-transfer / AKIASFUIRG3WF2F2P3T6) is Inactive for the same
+  # reason. To resume: undelete the GCP project, reactivate that key, then set
+  # suspend: false. NOTE the dump is a full mysqldump every night and gzips to
+  # a fresh non-deduplicable ~864 MB blob -- if this is re-enabled, prefer a
+  # weekly full rather than nightly, or write straight to GCS from the pod.
+  suspend: true
+  schedule: "45 20 * * *" # 20:45 UTC = 02:15 IST, after the 01:30 backup window
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: db-escape-dump
+            version: v1
+        spec:
+          serviceAccountName: vendure-production-vendure-stack
+          restartPolicy: Never
+          nodeSelector:
+            node-group: vendure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: work
+              emptyDir:
+                sizeLimit: 8Gi
+          containers:
+            - name: dump
+              image: 149536454380.dkr.ecr.ap-south-1.amazonaws.com/toolbox:mysqldump-v1
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  export MYSQL_PWD="$DB_PASSWORD"
+                  # vendure-secrets carries the app's STATIC S3 keys (user
+                  # S3-admin) which the CLI prefers over IRSA -- and that user
+                  # can't write the escape bucket. Drop them so the pod's own
+                  # role (which can) is used for the upload.
+                  unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+                  # BOTH databases on this RDS instance. DRILL FINDING #10
+                  # (2026-08-04): dumping only wow_vendure left the client
+                  # storefront (prabhasaari, db client_vendure) with NO copy
+                  # outside AWS -- its escape-day page failed with
+                  # CHANNEL_NOT_FOUND. Any new tenant DB must be added here.
+                  for DB in wow_vendure client_vendure; do
+                    F="${DB}-$(date +%F).sql.gz"
+                    mysqldump -h "$DB_HOST" -u "$DB_USERNAME" \
+                      --single-transaction --quick --routines --triggers \
+                      --set-gtid-purged=OFF --no-tablespaces \
+                      "$DB" | gzip > "/work/$F"
+                    aws s3 cp "/work/$F" "s3://kaaikani-escape-dumps/$F" --region ap-south-1
+                    echo "uploaded $F ($(du -h /work/$F | cut -f1))"
+                    rm -f "/work/$F"
+                  done
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              envFrom:
+                - secretRef:
+                    name: vendure-secrets
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi

@@ -1,0 +1,60 @@
+# =============================================================================
+# GCP ESCAPE OVERLAY — prabasaari-production on GKE Autopilot
+# =============================================================================
+#   helm upgrade --install prabasaari-production ./prabasaari \
+#     -n prabasaari-production --create-namespace \
+#     -f prabasaari/values.yaml \
+#     -f environments/production/prabasaari-values.yaml \
+#     -f environments/gcp/prabasaari-values.yaml
+#
+# Separate from storefronts-values.yaml because prabasaari is its own chart
+# (`app:` rather than `storefront:`, no Argo Rollouts path).
+#
+# prabhasaaridesigns.com is served by this storefront AND by vendure-client's
+# API paths on the same hostname — bring both up or the site renders empty.
+#
+# Not referenced by any ArgoCD Application; inert with respect to production.
+# =============================================================================
+
+global:
+  imageRegistry: "asia-south1-docker.pkg.dev/kaaikani-escape/kaaikani/"
+
+# EKS node-group label Autopilot cannot satisfy — pods would sit Pending.
+app:
+  nodeSelector:
+    node-group: null
+
+priorityClassName: ""
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: null
+    alb.ingress.kubernetes.io/group.name: null
+    alb.ingress.kubernetes.io/group.order: null
+    alb.ingress.kubernetes.io/scheme: null
+    alb.ingress.kubernetes.io/target-type: null
+    alb.ingress.kubernetes.io/listen-ports: null
+    alb.ingress.kubernetes.io/ssl-redirect: null
+    alb.ingress.kubernetes.io/certificate-arn: null
+    alb.ingress.kubernetes.io/healthcheck-path: null
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: null
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: null
+    alb.ingress.kubernetes.io/healthy-threshold-count: null
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: null
+    alb.ingress.kubernetes.io/tags: null
+    alb.ingress.kubernetes.io/load-balancer-attributes: null
+    alb.ingress.kubernetes.io/target-group-attributes: null
+    # DRILL #2 FINDING: without this, http:// served the site in clear text with
+    # no redirect. ingress-nginx only auto-redirects when the Ingress carries its
+    # own `tls:` block; ours does not -- the certificate comes from the
+    # controller's default-ssl-certificate, and the storefront charts have no
+    # tls: support at all. Production's ALB did this with ssl-redirect: "443",
+    # which was nulled for GCP and never replaced. force-ssl-redirect works
+    # regardless of whether the Ingress declares TLS.
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+# See environments/gcp/vendure-values.yaml for why.
+networkPolicies:
+  enabled: false

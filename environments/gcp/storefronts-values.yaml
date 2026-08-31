@@ -1,0 +1,79 @@
+# =============================================================================
+# GCP ESCAPE OVERLAY — the three storefront-chart apps
+# =============================================================================
+# One file for all three because the only differences between them (hostname,
+# image repository, replica counts) already live in their production values and
+# are inherited unchanged. Applied on top, per release:
+#
+#   helm upgrade --install storefront-production ./storefront \
+#     -n storefront-production --create-namespace \
+#     -f storefront/values.yaml \
+#     -f environments/production/storefront-values.yaml \
+#     -f environments/gcp/storefronts-values.yaml
+#
+#   ...same for southmithai-production / southmithai-values.yaml
+#   ...same for swadkerala-production  / swadkerala-values.yaml
+#   (all three use the ./storefront chart — see argocd/applications/)
+#
+# These are the storefronts drill #1 never brought up. kaaikanistore.com,
+# southmithai.com and www.swadkerala.com had images in Artifact Registry and
+# nothing else: no deployment path, no ingress, no route to a browser.
+#
+# Not referenced by any ArgoCD Application; inert with respect to production.
+# =============================================================================
+
+global:
+  imageRegistry: "asia-south1-docker.pkg.dev/kaaikani-escape/kaaikani/"
+
+storefront:
+  # Argo Rollouts is not installed on the escape cluster, and installing a
+  # progressive-delivery controller mid-outage is not a good use of the hour.
+  # false switches the chart from a Rollout CR to a plain Deployment — with
+  # Rollouts absent the Rollout object applies and then nothing reconciles it,
+  # so the pods never appear and the failure is silent.
+  blueGreen:
+    enabled: false
+
+  # EKS managed-node-group label. Autopilot cannot satisfy an arbitrary custom
+  # node label, so inheriting this leaves every storefront pod Pending with no
+  # error surfaced on the Deployment.
+  nodeSelector:
+    node-group: null
+
+priorityClassName: ""
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: null
+    alb.ingress.kubernetes.io/group.name: null
+    alb.ingress.kubernetes.io/group.order: null
+    alb.ingress.kubernetes.io/scheme: null
+    alb.ingress.kubernetes.io/target-type: null
+    alb.ingress.kubernetes.io/listen-ports: null
+    alb.ingress.kubernetes.io/ssl-redirect: null
+    alb.ingress.kubernetes.io/certificate-arn: null
+    alb.ingress.kubernetes.io/healthcheck-path: null
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: null
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: null
+    alb.ingress.kubernetes.io/healthy-threshold-count: null
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: null
+    alb.ingress.kubernetes.io/tags: null
+    alb.ingress.kubernetes.io/load-balancer-attributes: null
+    alb.ingress.kubernetes.io/target-group-attributes: null
+    # DRILL #2 FINDING: without this, http:// served the site in clear text with
+    # no redirect. ingress-nginx only auto-redirects when the Ingress carries its
+    # own `tls:` block; ours does not -- the certificate comes from the
+    # controller's default-ssl-certificate, and the storefront charts have no
+    # tls: support at all. Production's ALB did this with ssl-redirect: "443",
+    # which was nulled for GCP and never replaced. force-ssl-redirect works
+    # regardless of whether the Ingress declares TLS.
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+# Same DNS trap as the vendure chart: the default-deny policy allows DNS only
+# to a namespace labelled `name: kube-system`, which GKE does not set. Left on,
+# the storefront pods cannot resolve the API hostname and render error pages.
+# Reasoning and the re-enable path: environments/gcp/vendure-values.yaml.
+networkPolicies:
+  enabled: false

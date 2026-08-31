@@ -1,0 +1,188 @@
+name: DR Readiness Check
+
+# Weekly verification that every DR sync channel is alive. The failure mode
+# this kills: replication silently breaks in month 3, nobody looks, and the
+# gap is discovered DURING a disaster (drill #1 finding #7 — the DR registry
+# was empty on drill day). Runs OUTSIDE AWS on purpose: the watchman must not
+# live in the building it guards.
+on:
+  schedule:
+    - cron: "30 22 * * 0" # Mondays 04:00 IST
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # used for BOTH clouds: AWS OIDC role + GCP Workload Identity
+  contents: read
+  issues: write
+
+env:
+  AWS_REGION: ap-south-1
+  TF_ROLE_ARN: arn:aws:iam::149536454380:role/github-actions-terraform
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/905443273799/locations/global/workloadIdentityPools/github/providers/github-oidc
+          service_account: github-mirror@kaaikani-escape.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check every DR channel
+        id: check
+        run: |
+          FAIL=""
+          note() { echo "$1"; }
+          bad()  { FAIL="${FAIL}- $1\n"; echo "FAIL: $1"; }
+
+          # 1. RDS backup replication streaming to ap-south-2
+          S=$(aws rds describe-db-instance-automated-backups --region ap-south-2 \
+               --query 'DBInstanceAutomatedBackups[0].Status' --output text 2>/dev/null)
+          [ "$S" = "replicating" ] && note "RDS replication: $S" || bad "RDS backup replication is '$S' (want: replicating)"
+
+          # 2. All prod secret replicas InSync
+          for s in vendure/prod/database vendure/prod/redis vendure/prod/aws-s3 \
+                   vendure/prod/smtps vendure/prod/integrations prod/storefronts \
+                   vendure-client/prod/all; do
+            ST=$(aws secretsmanager describe-secret --secret-id "$s" \
+                  --query 'ReplicationStatus[0].Status' --output text 2>/dev/null)
+            [ "$ST" = "InSync" ] || bad "secret replica $s is '$ST'"
+          done
+          note "secret replicas checked"
+
+          # 3. DR ECR repos non-empty (code images ready to run)
+          for r in vendure-prod kaaikanistore southmithai swadkerala prabasaaridesigns vendure-client; do
+            N=$(aws ecr describe-images --region ap-south-2 --repository-name "$r" \
+                 --query 'length(imageDetails)' --output text 2>/dev/null || echo 0)
+            [ "${N:-0}" -ge 1 ] || bad "DR ECR repo $r is EMPTY"
+          done
+          note "DR ECR repos checked"
+
+          # 4. EC2 vault has a recovery point newer than 40 days
+          NEWEST=$(aws backup list-recovery-points-by-backup-vault --region ap-south-2 \
+                    --backup-vault-name vendure-dr-ec2 \
+                    --query 'max_by(RecoveryPoints,&CreationDate).CreationDate' --output text 2>/dev/null)
+          if [ -z "$NEWEST" ] || [ "$NEWEST" = "None" ]; then
+            bad "EC2 DR vault has NO recovery points"
+          else
+            AGE=$(( ( $(date +%s) - $(date -d "$NEWEST" +%s) ) / 86400 ))
+            [ "$AGE" -le 40 ] && note "EC2 vault newest recovery point: ${AGE}d old" \
+              || bad "EC2 vault newest recovery point is ${AGE} days old (>40)"
+          fi
+
+          # 5. DR ACM certs all ISSUED
+          NOT_ISSUED=$(aws acm list-certificates --region ap-south-2 \
+                        --query "length(CertificateSummaryList[?Status!='ISSUED'])" --output text)
+          [ "$NOT_ISSUED" = "0" ] && note "DR certs all ISSUED" || bad "$NOT_ISSUED DR cert(s) not ISSUED"
+
+          # 6. SES second-region identities verified
+          UNVER=$(aws sesv2 list-email-identities --region ap-southeast-1 \
+                   --query "length(EmailIdentities[?VerifiedForSendingStatus==\`false\`])" --output text 2>/dev/null)
+          [ "${UNVER:-1}" = "0" ] && note "SES ap-southeast-1 identities verified" \
+            || bad "$UNVER SES identity(ies) in ap-southeast-1 not verified for sending"
+
+          # 7. GCP escape hatch: EVERY S3->GCS transfer job's last run succeeded.
+          # Was pinned to one hardcoded job id, which checked the database dumps
+          # and silently ignored both product-image jobs.
+          JOBS=$(gcloud transfer jobs list --project kaaikani-escape \
+                  --format="value(name)" 2>/dev/null)
+          JN=$(echo "$JOBS" | grep -c . || true)
+          [ "${JN:-0}" -ge 3 ] || bad "only ${JN:-0}/3 GCP transfer jobs exist (dumps + 2 image buckets)"
+          for J in $JOBS; do
+            TS=$(gcloud transfer operations list --job-names="$J" --project kaaikani-escape \
+                  --limit=1 --format="value(metadata.status)" 2>/dev/null || echo NONE)
+            case "$TS" in
+              SUCCESS|IN_PROGRESS) note "GCP transfer $J: $TS" ;;
+              *) bad "GCP transfer job $J status: '$TS'" ;;
+            esac
+          done
+
+          # 8. Artifact Registry stocked PER REPO. A total count >= 1 passed
+          # while five of six storefronts had no image at all.
+          for r in vendure-prod kaaikanistore southmithai swadkerala prabasaaridesigns vendure-client; do
+            GN=$(gcloud artifacts docker images list \
+                  "asia-south1-docker.pkg.dev/kaaikani-escape/kaaikani/$r" \
+                  --format="value(version)" 2>/dev/null | wc -l)
+            [ "${GN:-0}" -ge 1 ] || bad "GCP Artifact Registry has NO image for $r"
+          done
+          note "Artifact Registry checked per repo"
+
+          # 9. Every secret the GCP overlays name must exist AND have a version.
+          # A container with zero versions reads as present to `secrets list`
+          # and fails at pod start.
+          for g in vendure_prod_database vendure_prod_redis vendure_prod_aws_s3 \
+                   vendure_prod_smtps vendure_prod_integrations prod_storefronts \
+                   vendure_client_prod_all vendure_gcp_assets \
+                   cf_origin_tls_crt cf_origin_tls_key; do
+            V=$(gcloud secrets versions list "$g" --project kaaikani-escape \
+                 --filter="state=ENABLED" --format="value(name)" 2>/dev/null | wc -l)
+            [ "${V:-0}" -ge 1 ] || bad "GCP secret $g has no enabled version"
+          done
+          note "GCP secret copies checked"
+
+          # 10. Product images actually landed, at the RIGHT keys. The escape
+          # asset buckets mirror S3 key-for-key; an object under a bucket-name
+          # prefix means the sink path regressed and every image would 404.
+          for b in kaaikani-escape-assets kaaikani-escape-assets-client; do
+            N=$(gcloud storage ls "gs://$b/**" --project kaaikani-escape 2>/dev/null | head -200 | wc -l)
+            [ "${N:-0}" -ge 1 ] || bad "GCS bucket $b is EMPTY (product images missing)"
+          done
+          STRAY=$(gcloud storage ls "gs://kaaikani-escape-assets/cdn.kaaikani.co.in/" 2>/dev/null | wc -l)
+          [ "${STRAY:-0}" = "0" ] || bad "kaaikani-escape-assets still has the old prefixed layout — asset URLs will 404"
+          note "GCS asset buckets checked"
+
+          # 11. The Cloudflare Origin CA certificate must outlive the next
+          # escape. It is issued for 15 years, so this only fires if someone
+          # replaced it with a short-lived one.
+          CRT=$(gcloud secrets versions access latest --secret=cf_origin_tls_crt \
+                 --project kaaikani-escape 2>/dev/null)
+          if [ -n "$CRT" ]; then
+            END=$(echo "$CRT" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+            if [ -n "$END" ]; then
+              DAYS=$(( ( $(date -d "$END" +%s) - $(date +%s) ) / 86400 ))
+              [ "$DAYS" -ge 60 ] && note "escape TLS cert valid ${DAYS}d" \
+                || bad "escape TLS cert expires in ${DAYS}d"
+            else
+              bad "cf_origin_tls_crt is not a parseable certificate"
+            fi
+          fi
+
+          {
+            echo "failures<<EOF"
+            printf "%b" "$FAIL"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          [ -z "$FAIL" ] && echo "ALL DR CHANNELS GREEN (AWS + GCP)"
+
+      - name: Open issue on failure
+        if: steps.check.outputs.failures != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Built with a heredoc, not an inline multi-line --body. The inline
+          # form put continuation lines at column 0, which ends the `run: |`
+          # block scalar and made this file INVALID YAML -- so the watchman
+          # never ran at all. Every line of the body must stay indented to the
+          # block level; YAML strips that indent back off.
+          cat > /tmp/dr-body.md <<'BODY'
+          Weekly DR readiness check found broken sync channels. If a real
+          disaster hit today, recovery would be degraded or impossible. Fix
+          before anything else:
+
+          BODY
+          printf '%s\n' "${{ steps.check.outputs.failures }}" >> /tmp/dr-body.md
+          cat >> /tmp/dr-body.md <<'BODY'
+
+          Runbook: docs/dr/RUNBOOK.md (Monthly DR readiness check section).
+          GCP escape channels: docs/dr/GCP-ESCAPE.md.
+          BODY
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "🔴 DR readiness FAILED $(date -u +%F)" \
+            --body-file /tmp/dr-body.md

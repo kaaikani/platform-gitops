@@ -467,6 +467,9 @@ import {
   id = "vendure-client-production-role:vendure-client-prod-permissions"
 }
 
+# Trust FIXED 2026-08-03: previously pointed at a DELETED cluster's OIDC
+# provider (76105CDD...) so Loki's IRSA could never authenticate -- S3 log
+# shipping was silently broken in prod. Now trusts the active cluster.
 resource "aws_iam_role" "loki" {
   name                 = "LokiS3Role"
   max_session_duration = 3600
@@ -476,13 +479,13 @@ resource "aws_iam_role" "loki" {
       {
         "Effect" : "Allow",
         "Principal" : {
-          "Federated" : "arn:aws:iam::149536454380:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/76105CDD15D9EC7B1A762E1D251F0EE9"
+          "Federated" : "arn:aws:iam::149536454380:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/49B4F1DE175BD38F8192416B929E9D7E"
         },
         "Action" : "sts:AssumeRoleWithWebIdentity",
         "Condition" : {
           "StringEquals" : {
-            "oidc.eks.ap-south-1.amazonaws.com/id/76105CDD15D9EC7B1A762E1D251F0EE9:sub" : "system:serviceaccount:monitoring:loki",
-            "oidc.eks.ap-south-1.amazonaws.com/id/76105CDD15D9EC7B1A762E1D251F0EE9:aud" : "sts.amazonaws.com"
+            "oidc.eks.ap-south-1.amazonaws.com/id/49B4F1DE175BD38F8192416B929E9D7E:sub" : "system:serviceaccount:monitoring:loki",
+            "oidc.eks.ap-south-1.amazonaws.com/id/49B4F1DE175BD38F8192416B929E9D7E:aud" : "sts.amazonaws.com"
           }
         }
       }

@@ -356,6 +356,22 @@ spec:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: MSG91_AUTH_KEY
                   optional: true
+            # MSG91 sender ("hello") number — plain config, not a secret.
+            {{- if .Values.vendure.env.MSG91_HELLO_NUMBER }}
+            - name: MSG91_HELLO_NUMBER
+              value: {{ .Values.vendure.env.MSG91_HELLO_NUMBER | quote }}
+            {{- end }}
+
+            # Report export target bucket — plain config, not a secret. Access is
+            # via the pod's IRSA role.
+            {{- if .Values.vendure.env.REPORT_S3_BUCKET }}
+            - name: REPORT_S3_BUCKET
+              value: {{ .Values.vendure.env.REPORT_S3_BUCKET | quote }}
+            {{- end }}
+            {{- if .Values.vendure.env.REPORT_S3_REGION }}
+            - name: REPORT_S3_REGION
+              value: {{ .Values.vendure.env.REPORT_S3_REGION | quote }}
+            {{- end }}
 
             # Abandoned-cart sweep interval (minutes) — plain config, not a secret.
             {{- if .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN }}
@@ -380,6 +396,20 @@ spec:
             - name: APPLE_CLIENT_ID_DEFAULT
               value: {{ .Values.vendure.env.APPLE_CLIENT_ID_DEFAULT | quote }}
             {{- end }}
+
+            # Web Push (VAPID) — the public key is shipped to browsers by design,
+            # so it is plain config. The private key stays in AWS Secrets Manager
+            # (vendure/prod/integrations) and is synced in by External Secrets.
+            {{- if .Values.vendure.env.VAPID_PUBLIC_KEY }}
+            - name: VAPID_PUBLIC_KEY
+              value: {{ .Values.vendure.env.VAPID_PUBLIC_KEY | quote }}
+            {{- end }}
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: VAPID_PRIVATE_KEY
+                  optional: true
 
           resources:
             {{- toYaml .Values.vendure.resources | nindent 12 }}

@@ -58,10 +58,14 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      # Saved-plan flow: the apply executes EXACTLY the plan produced seconds
+      # earlier in this same job -- terraform refuses a stale plan if anything
+      # changed in between. Closes the review-one-plan/apply-another gap
+      # within the run (cross-run PR-plan artifacts need environments; later).
       - name: Terraform Plan
-        run: terraform plan -no-color -input=false
+        run: terraform plan -no-color -input=false -out=tfplan
 
       # Apply ONLY on a real push to main (i.e. after a PR is merged).
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve -input=false
+        run: terraform apply -input=false tfplan

@@ -48,7 +48,7 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     # kaaikani + kaaikanistore + *.southmithai (DR-region certs)
-    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-2:149536454380:certificate/46d8d172-10f0-439b-909d-553d6da023a3,arn:aws:acm:ap-south-2:149536454380:certificate/0908359b-d0bc-4d7a-aa90-13a7a05224fb,arn:aws:acm:ap-south-2:149536454380:certificate/b15f6a3f-3f67-4697-bc9e-d2b1ef75f5cb"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-2:149536454380:certificate/46d8d172-10f0-439b-909d-553d6da023a3,arn:aws:acm:ap-south-2:149536454380:certificate/0908359b-d0bc-4d7a-aa90-13a7a05224fb,arn:aws:acm:ap-south-2:149536454380:certificate/b15f6a3f-3f67-4697-bc9e-d2b1ef75f5cb,arn:aws:acm:ap-south-2:149536454380:certificate/c14a7aa4-b87c-4c2e-ba57-e59cd1553002"
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
@@ -56,6 +56,15 @@ ingress:
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "4"
     alb.ingress.kubernetes.io/tags: Environment=dr
   hosts:
+    # Browser-verification host: real Cloudflare record, own ACM cert. Lets a
+    # human SEE the DR copy at https://dr-test.kaaikani.co.in without touching
+    # any customer-facing record. Delete the Cloudflare record after the test.
+    - host: dr-test.kaaikani.co.in
+      paths:
+        - path: /
+          pathType: Prefix
+          service: vendure
+          port: 80
     - host: kaaikani.co.in
       paths:
         - path: /dashboard

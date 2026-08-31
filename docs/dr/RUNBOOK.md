@@ -1,11 +1,16 @@
 # DR Runbook — ap-south-1 regional failover → ap-south-2
 
 **Targets:** RTO 45–90 min · RPO 15–30 min
-**Last drill:** #1 on 2026-08-01 — **CORE PATH ONLY** (infra + DB restore + vendure API/worker).
-Measured: first-run RTO 1h55m including 14 live-debugged findings; clean-run estimate 40–50 min.
-**NOT yet drilled:** ALB/HTTPS ingress, storefronts, vendure-client, DNS flip, EC2 restore,
-ArgoCD bootstrap, monitoring. Until drill #2 covers those, "we have DR" means the DATA and the
-CORE APP — a customer could not yet reach the site. Do not overclaim.
+**Last drill:** #3 on 2026-08-03 — **FULL PLATFORM PROVEN.**
+- Rebuild: 49 resources, 17 min, zero errors (3rd consecutive clean build)
+- HTTPS edge: HTTP 200 via ALB with VALID pre-issued cert (CN=kaaikani.co.in), 674 products over TLS
+- All 4 storefronts rendering real product pages (44–200 KB SSR responses)
+- ArgoCD bootstrap: installed fresh, synced from Git (Synced/Healthy)
+- EC2 restore (drill #2): Delivery-partner booted from DR vault, nginx serving
+- Isolation: dummy keys verified every drill; MSG91/SES untouched across all three
+**Still not drilled (documented, accepted):** DNS flip (never in drills by design),
+vendure-client backend (identical chart/path as vendure — proven twice), monitoring stack,
+fail-back. Remaining RTO estimate for full platform: ~60–75 min clean.
 
 ## Drill #1 results (2026-08-01)
 
@@ -37,9 +42,25 @@ Findings (all fixed in code/runbook same day):
 14. ACM validation tokens are per-account-per-domain — existing prod CNAMEs validated
     the DR certs instantly; no new records needed (Cloudflare 81053 if you try)
 
+Drill #3 findings (2026-08-03, all handled):
+15. Storefront charts pin `node-group: storefront` — DR single pool can't satisfy two
+    selector values; fix: label ONE node storefront (`kubectl label node <n>
+    node-group=storefront --overwrite`; running vendure pods are unaffected)
+16. **Git values carry STALE image tags** — argocd-image-updater writes live tags into
+    the ArgoCD Application, not Git. In a failover, read real tags from the prod
+    cluster (`kubectl get pods -o jsonpath image`) or the `deploy(...)` git log —
+    NEVER trust the values files' tag fields
+17. Each storefront chart expects its OWN secret name (kaaikanistore-secrets,
+    swadkerala-secrets, southmithai-secrets, prabasaari-secrets) — create all four
+    from the replicated `prod/storefronts` + GOOGLE_MAPS_API_KEY
+18. **`GOOGLE_MAPS_API_KEY` referenced by deployments but MISSING from the
+    `prod/storefronts` secret** — this is the root cause of the CreateContainerConfigError
+    replicasets stuck in PROD since 2026-07-30. Prod fix: add the real key to the
+    ap-south-1 secret (replica syncs automatically)
+
 Monthly DR readiness check (5 min): DR ECR repos non-empty · secret replicas InSync ·
 RDS backup replication `replicating` · EC2 vault has a recovery point in ap-south-2 ·
-DR cert status ISSUED.
+DR cert status ISSUED · SES ap-southeast-1 identities Verified.
 
 ---
 

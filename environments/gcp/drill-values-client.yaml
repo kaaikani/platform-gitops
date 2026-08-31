@@ -1,0 +1,42 @@
+# =============================================================================
+# GCP DRILL overlay — vendure-client-production ONLY
+# =============================================================================
+#   helm upgrade --install vendure-client-production ./vendure-stack \
+#     -n vendure-client-production \
+#     -f vendure-stack/values.yaml \
+#     -f environments/production/vendure-client-values.yaml \
+#     -f environments/gcp/vendure-client-values.yaml \
+#     -f environments/gcp/drill-values-client.yaml     # <-- this file, last
+#
+# Separate from drill-values.yaml because that file is shaped for
+# vendure-production: it swaps the ingress to the single drill hostname, which
+# would take prabhasaaridesigns.com's API paths away from this release and make
+# the client half of the drill untestable.
+#
+# The one rule that matters here is the same one: every secret key points at
+# ONE merged object. This chart extracts database → redis → awsS3 → smtps →
+# integrations in a fixed order and each extract overwrites the last, so
+# splitting them across secrets silently restores the dead production values.
+#
+# vendure_client_gcp_drill_all = the production client secret with every
+# external credential replaced by DUMMY-, the drill Redis host, and the drill
+# Cloud SQL coordinates for client_vendure.
+#
+# ⚠ IN A REAL ESCAPE, DO NOT APPLY THIS FILE.
+# =============================================================================
+
+# The worker drains queues and sends messages. Off until pre-flight passes.
+worker:
+  replicaCount: 0
+
+externalSecrets:
+  awsSecrets:
+    database: "vendure_client_gcp_drill_all"
+    redis: "vendure_client_gcp_drill_all"
+    awsS3: "vendure_client_gcp_drill_all"
+    smtps: "vendure_client_gcp_drill_all"
+    integrations: "vendure_client_gcp_drill_all"
+
+# Hostname is left as production's (prabhasaaridesigns.com). No DNS record
+# points at the drill load balancer, so nothing reaches it by accident — the
+# ingress rule exists only so the path routing can be tested with a Host header.
