@@ -57,6 +57,14 @@ vendure:
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
     OTEL_SERVICE_NAME: "vendure-client"
     OTEL_RESOURCE_ATTRIBUTES: "service.name=vendure-client,deployment.environment=production"
+    # Base URL the Vendure API hands to the storefront for asset previews
+    # (see src/cdn-aware-s3-storage.ts in the admin-ui-client repo).
+    # Raw S3 ignores the ?w=/?h=/?preset= params the storefront appends, so a
+    # 40x40 thumbnail request was serving the full-size original (58 KB vs
+    # 1 KB). Routing through the asset server's /assets route makes the resize
+    # actually happen; Cloudflare in front of cdn.* caches the variants.
+    # Remove this line to fall straight back to raw S3 URLs.
+    ASSET_CDN_BASE: "https://cdn.prabhasaaridesigns.com/assets/"
   podAnnotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: "80"
@@ -235,6 +243,8 @@ prometheusRule:
 # Routes (ALB picks the most specific path first):
 #   prabhasaaridesigns.com/shop-api → vendure API (port 80)
 #   prabhasaaridesigns.com/assets   → vendure API (port 80)  — Vendure assets
+#   cdn.prabhasaaridesigns.com/assets → vendure API (port 80) — same assets,
+#                                     via Cloudflare (cached, resized)
 #   prabhasaaridesigns.com/health   → vendure API (port 80)  — health probe
 #   prabhasaaridesigns.com/admin    → Admin UI (port 3002)   — auto via adminUi.enabled
 #   prabhasaaridesigns.com/         → prabasaari storefront (separate ingress)
@@ -288,6 +298,17 @@ ingress:
           service: vendure
           port: 80
         - path: /health
+          pathType: Prefix
+          service: vendure
+          port: 80
+    # Asset-only hostname, proxied through Cloudflare (terraform/cloudflare_cdn.tf).
+    # ONLY /assets is exposed here: shop-api, admin and the storefront stay on
+    # the apex, which is deliberately NOT proxied, so edge caching cannot touch
+    # checkout or admin traffic. Covered by the existing *.prabhasaaridesigns.com
+    # wildcard cert, so no new ACM certificate is needed.
+    - host: cdn.prabhasaaridesigns.com
+      paths:
+        - path: /assets
           pathType: Prefix
           service: vendure
           port: 80
