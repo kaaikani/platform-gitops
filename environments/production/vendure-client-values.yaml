@@ -30,7 +30,7 @@ vendure:
       maxUnavailable: 1
   image:
     repository: vendure-client
-    tag: "devops-v1.0.19"
+    tag: "devops-v1.0.20"
     pullPolicy: Always
   # Dedicated t3a.small: ~1287Mi app-allocatable after daemonsets. Budget must
   # hold 2 API replicas (HPA max) + the worker, all on ONE node:
