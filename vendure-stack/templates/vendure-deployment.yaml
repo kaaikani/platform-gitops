@@ -225,6 +225,12 @@ spec:
               value: {{ .Values.s3.bucket | quote }}
             - name: S3_ENDPOINT
               value: {{ .Values.s3.endpoint | default (printf "https://s3.%s.amazonaws.com" (.Values.s3.region | default "ap-south-1")) | quote }}
+            # Base URL the API hands the storefront for asset previews.
+            # Optional: unset means the app falls back to raw S3 URLs.
+            {{- if .Values.vendure.env.ASSET_CDN_BASE }}
+            - name: ASSET_CDN_BASE
+              value: {{ .Values.vendure.env.ASSET_CDN_BASE | quote }}
+            {{- end }}
             {{- end }}
 
             # South Mithai SMTP Configuration
