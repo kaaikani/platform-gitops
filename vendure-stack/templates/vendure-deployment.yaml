@@ -354,6 +354,21 @@ spec:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: GOOGLE_CLIENT_ID
 
+            # Google Maps JavaScript API key — synced from AWS Secrets Manager
+            # (vendure/prod/integrations) by External Secrets Operator.
+            # Read at request time by the take-away Admin API resolver
+            # (googleMapsApiKey), which hands it to the Admin UI store-location
+            # picker. Server only: the worker serves no Admin API, so it has no
+            # reader for this and is deliberately left unwired.
+            # The Admin UI ships it to the browser — restrict it by HTTP
+            # referrer + API in GCP, exactly like the storefront's copy.
+            - name: GOOGLE_MAPS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: GOOGLE_MAPS_API_KEY
+                  optional: true
+
             # MSG91 (SMS/OTP provider) auth key — synced from AWS Secrets Manager
             # (vendure/prod/integrations) via External Secrets Operator.
             - name: MSG91_AUTH_KEY

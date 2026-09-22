@@ -398,6 +398,11 @@ secrets:
     apiKey: ""
     webhookToken: ""
 
+  # Google Maps JS API key (only used if secrets.create=true)
+  # ⚠️  NEVER use this in production - use AWS Secrets Manager instead
+  google:
+    mapsApiKey: ""
+
 # External Secrets Operator Configuration
 # See: docs/AWS-SECRETS-MANAGER-SETUP.md for setup instructions
 externalSecrets:

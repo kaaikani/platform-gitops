@@ -513,10 +513,17 @@ externalSecrets:
     smtps: "vendure/prod/smtps"
     integrations: "vendure/prod/integrations"
     # Keys expected inside vendure/prod/integrations (flat JSON):
-    #   GOOGLE_CLIENT_ID, RAZORPAY_WEBHOOK_SECRET, MSG91_AUTH_KEY,
-    #   BLUEDART_CLIENT_ID, BLUEDART_CLIENT_SECRET,
+    #   GOOGLE_CLIENT_ID, GOOGLE_MAPS_API_KEY, RAZORPAY_WEBHOOK_SECRET,
+    #   MSG91_AUTH_KEY, BLUEDART_CLIENT_ID, BLUEDART_CLIENT_SECRET,
     #   SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD,
     #   ADLOGGS_API_KEY, ADLOGGS_WEBHOOK_TOKEN
+    #
+    # GOOGLE_MAPS_API_KEY backs the take-away store-location picker in the
+    # Admin UI: the server resolver googleMapsApiKey returns it and the browser
+    # loads the Maps JS API with it, so it is public once served. Restrict it by
+    # HTTP referrer + API in GCP. Wired into the server only — the worker has no
+    # reader for it. It is a separate concern from the storefront's own
+    # GOOGLE_MAPS_API_KEY in the storefront-secrets Secret.
     #
     # ADLOGGS_WEBHOOK_TOKEN is the shared secret Adloggs must send in the
     # x-webhook-token header of status webhooks. Give Adloggs that value plus
