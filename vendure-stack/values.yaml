@@ -87,6 +87,10 @@ vendure:
     COOKIE_SECRET: "change-me-in-production"
     SUPERADMIN_USERNAME: "superadmin"
     SUPERADMIN_PASSWORD: "superadmin123"
+    # Adloggs delivery partner API base URL. Plain config, not a secret.
+    # Deliberately unset here so only environments that opt in get it (set
+    # ADLOGGS_HOST in the env values file, e.g. "https://app.adloggs.com").
+    # The API key and webhook token are secrets — see secrets.adloggs below.
 
   # Database connection (references mysql service)
   database:
@@ -387,6 +391,12 @@ secrets:
   vendure:
     cookieSecret: "your-super-secret-cookie-key-change-in-production"
     superadminPassword: "superadmin123"
+
+  # Adloggs delivery partner (only used if secrets.create=true)
+  # ⚠️  NEVER use these in production - use AWS Secrets Manager instead
+  adloggs:
+    apiKey: ""
+    webhookToken: ""
 
 # External Secrets Operator Configuration
 # See: docs/AWS-SECRETS-MANAGER-SETUP.md for setup instructions

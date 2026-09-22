@@ -331,6 +331,26 @@ spec:
                   name: {{ include "vendure-stack.secretName" . }}
                   key: MSG91_AUTH_KEY
                   optional: true
+            # Adloggs (delivery partner) integration. Matches
+            # vendure-deployment.yaml: server and worker bootstrap from the same
+            # vendure-config, so both processes need the plugin's config present.
+            # The worker is what actually dispatches shipments in background jobs.
+            {{- if .Values.vendure.env.ADLOGGS_HOST }}
+            - name: ADLOGGS_HOST
+              value: {{ .Values.vendure.env.ADLOGGS_HOST | quote }}
+            {{- end }}
+            - name: ADLOGGS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: ADLOGGS_API_KEY
+                  optional: true
+            - name: ADLOGGS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: ADLOGGS_WEBHOOK_TOKEN
+                  optional: true
             # Abandoned-cart sweep interval (minutes) — plain config, not a secret.
             # The sweep is a background job, so it runs in the worker.
             {{- if .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN }}

@@ -363,6 +363,30 @@ spec:
                   key: MSG91_AUTH_KEY
                   optional: true
 
+            # Adloggs (delivery partner) integration.
+            # ADLOGGS_HOST is plain config (public API base URL) and lives in
+            # values. The API key and the webhook token are secrets, synced from
+            # AWS Secrets Manager (vendure/prod/integrations) by External Secrets.
+            # ADLOGGS_WEBHOOK_TOKEN is the shared secret Adloggs must send in the
+            # x-webhook-token header when POSTing status updates to
+            # https://<api-host>/adloggs/webhook — the server validates it.
+            {{- if .Values.vendure.env.ADLOGGS_HOST }}
+            - name: ADLOGGS_HOST
+              value: {{ .Values.vendure.env.ADLOGGS_HOST | quote }}
+            {{- end }}
+            - name: ADLOGGS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: ADLOGGS_API_KEY
+                  optional: true
+            - name: ADLOGGS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" . }}
+                  key: ADLOGGS_WEBHOOK_TOKEN
+                  optional: true
+
             # Abandoned-cart sweep interval (minutes) — plain config, not a secret.
             {{- if .Values.vendure.env.ABANDONED_CART_SWEEP_EVERY_MIN }}
             - name: ABANDONED_CART_SWEEP_EVERY_MIN

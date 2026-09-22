@@ -106,6 +106,10 @@ vendure:
     # Abandoned-cart sweep interval (minutes). Non-secret config toggle.
     # Testing uses 1; production runs the sweep every 30 min.
     ABANDONED_CART_SWEEP_EVERY_MIN: "30"
+    # Adloggs delivery partner API base URL. Non-secret config (public host).
+    # ADLOGGS_API_KEY and ADLOGGS_WEBHOOK_TOKEN are secrets and live in AWS
+    # Secrets Manager under vendure/prod/integrations — never in this file.
+    ADLOGGS_HOST: "https://app.adloggs.com"
     # Apple OAuth Bundle IDs (not sensitive — public iOS bundle identifiers)
     APPLE_CLIENT_ID_SOUTHMITHAI: "com.southmithai.southmithai"
     APPLE_CLIENT_ID_SWADKERALA: "com.Swadkerala.Swadkerala"
@@ -508,6 +512,17 @@ externalSecrets:
     awsS3: "vendure/prod/aws-s3"
     smtps: "vendure/prod/smtps"
     integrations: "vendure/prod/integrations"
+    # Keys expected inside vendure/prod/integrations (flat JSON):
+    #   GOOGLE_CLIENT_ID, RAZORPAY_WEBHOOK_SECRET, MSG91_AUTH_KEY,
+    #   BLUEDART_CLIENT_ID, BLUEDART_CLIENT_SECRET,
+    #   SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD,
+    #   ADLOGGS_API_KEY, ADLOGGS_WEBHOOK_TOKEN
+    #
+    # ADLOGGS_WEBHOOK_TOKEN is the shared secret Adloggs must send in the
+    # x-webhook-token header of status webhooks. Give Adloggs that value plus
+    # the URL https://kaaikani.co.in/adloggs/webhook. Rotating it means
+    # updating the AWS secret AND telling Adloggs the new value — ESO resyncs
+    # within refreshInterval (1m) and reloader restarts the pods.
 serviceAccount:
   create: true
   annotations:
