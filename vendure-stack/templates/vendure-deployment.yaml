@@ -378,6 +378,23 @@ spec:
                   key: MSG91_AUTH_KEY
                   optional: true
 
+            # WhatsApp Cloud API ordering bot (WhatsappPlugin) + MSG91 WhatsApp
+            # sender number — synced from AWS Secrets Manager
+            # (vendure/prod/integrations) by External Secrets Operator.
+            # Wired into server AND worker: both bootstrap the same vendure-config.
+            # Server answers the Meta webhook at /whatsapp/webhook; order-placed
+            # messages can fire from either process. Optional so a missing key
+            # degrades WhatsApp instead of blocking pod startup.
+            {{- range list "WA_BRAND" "WA_PHONE_ID" "WA_TOKEN" "WA_APP_SECRET" "WA_VERIFY_TOKEN" "WA_TEST_NUMBERS" "MSG91_HELLO_NUMBER" "STORE_URL" }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vendure-stack.secretName" $ }}
+                  key: {{ . }}
+                  optional: true
+            {{- end }}
+
+
             # Adloggs (delivery partner) integration.
             # ADLOGGS_HOST is plain config (public API base URL) and lives in
             # values. The API key and the webhook token are secrets, synced from

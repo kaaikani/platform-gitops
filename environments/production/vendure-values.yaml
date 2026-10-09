@@ -516,7 +516,14 @@ externalSecrets:
     #   GOOGLE_CLIENT_ID, GOOGLE_MAPS_API_KEY, RAZORPAY_WEBHOOK_SECRET,
     #   MSG91_AUTH_KEY, BLUEDART_CLIENT_ID, BLUEDART_CLIENT_SECRET,
     #   SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD,
-    #   ADLOGGS_API_KEY, ADLOGGS_WEBHOOK_TOKEN
+    #   ADLOGGS_API_KEY, ADLOGGS_WEBHOOK_TOKEN,
+    #   WA_BRAND, WA_PHONE_ID, WA_TOKEN, WA_APP_SECRET, WA_VERIFY_TOKEN,
+    #   WA_TEST_NUMBERS, MSG91_HELLO_NUMBER, STORE_URL
+    #
+    # WA_* configure the WhatsApp ordering bot (WhatsappPlugin). Register
+    # https://kaaikani.co.in/whatsapp/webhook in Meta with WA_VERIFY_TOKEN;
+    # WA_APP_SECRET verifies the X-Hub-Signature-256 on each webhook POST.
+    # WA_TEST_NUMBERS is comma-separated.
     #
     # GOOGLE_MAPS_API_KEY backs the take-away store-location picker in the
     # Admin UI: the server resolver googleMapsApiKey returns it and the browser
