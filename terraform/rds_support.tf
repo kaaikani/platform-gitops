@@ -6,6 +6,64 @@ resource "aws_db_subnet_group" "prod" {
   subnet_ids  = [aws_subnet.private_1a.id, aws_subnet.private_2b.id, aws_subnet.private_3c.id]
 }
 
+# MySQL 8.4 group attached to prod since the in-place console upgrade to 8.4.11
+# (Nov 2026). Created in the console, so it is imported, not created: renaming
+# it to match the runbook's "aws-vendure-pg-84" would force a replacement of a
+# group the live instance is using. Same 8 parameters as the 8.0 group below.
+import {
+  to = aws_db_parameter_group.prod_84
+  id = "new-aws-option-grp"
+}
+
+resource "aws_db_parameter_group" "prod_84" {
+  name        = "new-aws-option-grp"
+  family      = "mysql8.4"
+  description = "this is a new version mysql added" # matches AWS exactly; changing it forces replacement
+
+  parameter {
+    name         = "long_query_time"
+    value        = "1"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "log_output"
+    value        = "FILE"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "max_allowed_packet"
+    value        = "67108864"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "net_read_timeout"
+    value        = "120"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "net_write_timeout"
+    value        = "300"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "slow_query_log"
+    value        = "1"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "time_zone"
+    value        = "Asia/Calcutta"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "wait_timeout"
+    value        = "300"
+    apply_method = "immediate"
+  }
+}
+
+# MySQL 8.0 group: no longer attached to anything since the 8.4 upgrade. Kept so
+# this change destroys nothing; remove it in a later PR (runbook 3.8).
 resource "aws_db_parameter_group" "prod" {
   name        = "aws-vendure-pg"
   family      = "mysql8.0"

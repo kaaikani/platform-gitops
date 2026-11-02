@@ -16,6 +16,8 @@ resource "aws_db_instance_automated_backups_replication" "prod_db" {
   provider = aws.dr # DESTINATION region la dhaan indha resource iruka vendum
 
   source_db_instance_arn = aws_db_instance.prod_db.arn
-  retention_period       = aws_db_instance.prod_db.backup_retention_period
-  kms_key_id             = aws_kms_key.dr_rds.arn
+  # Own value, not prod's backup_retention_period: prod runs at 1 day, and a
+  # change here forces REPLACEMENT, which drops the replicated backups.
+  retention_period = 3
+  kms_key_id       = aws_kms_key.dr_rds.arn
 }

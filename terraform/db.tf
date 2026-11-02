@@ -3,9 +3,12 @@ resource "aws_db_instance" "prod_db" {
     prevent_destroy = true # guard: Terraform refuses to destroy/replace prod DB
   }
 
+  # engine_version: upgraded 8.0.45 -> 8.4.11 in the console, outside Terraform
+  # (Nov 2026). Exact version on purpose -- "8.4" plans as a real change that
+  # could start an upgrade. After any auto minor upgrade, bump this to match.
   identifier        = "vendure-prod-db"
   engine            = "mysql"
-  engine_version    = "8.0.45"
+  engine_version    = "8.4.11"
   instance_class    = "db.t3.medium"
   allocated_storage = 20
   # 20 GB la ~10 GB already use aagirukku (50%). Storage full aana RDS read-only
@@ -22,14 +25,17 @@ resource "aws_db_instance" "prod_db" {
   # Resource references, not name strings -- Terraform now knows the dependency
   # graph, and the same code can build these in an empty region (DR).
   db_subnet_group_name = aws_db_subnet_group.prod.name
-  parameter_group_name = aws_db_parameter_group.prod.name
+  parameter_group_name = aws_db_parameter_group.prod_84.name
   # 1 -> 3. Naal ku 1+ deploy pannurom, 42% Fri/Sat/Sun la. 1 naal vechirundha
   # velli deploy corruption ah thinkal kaalai kandupidichaalum restore point
   # illa. 3 naal andha weekend gap ah cover pannum -- adhu dhaan minimum.
   # Multi-AZ vendam nu decide panniruka, so backup dhaan namma ore recovery.
   # Non-zero se non-zero maathradhu la outage illa (0 <-> non-zero mattum reboot).
   # Data 10 GB, AWS free backup allowance 20 GB -> cost $0.
-  backup_retention_period = 3
+  # Live value is 1 (set in the console, Nov 2026, accepted as fine); matched
+  # here so Terraform does not change it. DR replication keeps its own 3 days
+  # (dr_rds.tf).
+  backup_retention_period = 1
 
   # Windows UTC la. Munnadi maintenance "wed:02:36-wed:03:06" UTC = Buthan kaalai
   # 08:06 IST -- ecommerce ku business hours. Maintenance window la AWS OS patching
