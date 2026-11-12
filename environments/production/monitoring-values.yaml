@@ -43,6 +43,9 @@ prometheus:
       - prom.kaaikani.co.in
     paths:
       - /
+    # ALB treats ImplementationSpecific "/" as exact-match only (/graph -> ALB 404).
+    # Prefix makes the controller emit "/*" like every other host on vendure-shared.
+    pathType: Prefix
 
   prometheusSpec:
     # Scrape ServiceMonitors from all namespaces

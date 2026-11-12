@@ -7,12 +7,13 @@ resource "aws_db_subnet_group" "dr" {
   subnet_ids  = aws_subnet.private[*].id
 }
 
-# Same tuning as prod's aws-vendure-pg (rds_support.tf), including the
-# log_output=FILE fix.
+# Same tuning as prod's new-aws-option-grp (rds_support.tf), including the
+# log_output=FILE fix. Family must match the engine of the replicated backups,
+# which are 8.4 since prod's upgrade; a mysql8.0 group makes the restore fail.
 resource "aws_db_parameter_group" "dr" {
   name        = "${var.project}-dr-pg"
-  family      = "mysql8.0"
-  description = "DR copy of aws-vendure-pg"
+  family      = "mysql8.4"
+  description = "DR copy of new-aws-option-grp"
 
   parameter {
     name         = "long_query_time"
